@@ -58,74 +58,113 @@
 
 ---
 
-## Phase 4 — Admin Panel Foundation & Layout
+## Phase 3.1 — Authentication & Private Portals Update ✅ COMPLETED
 
-- [ ] [P0] Create responsive Admin layout at `src/app/admin/layout.tsx`
-- [ ] [P0] Build Admin sidebar navigation with role-aware tabs (Central Authority vs Dept Admin)
-- [ ] [P0] Build Admin header with admin profile badge, active department indicator, and notifications
-- [ ] [P0] Build Admin dashboard shell at `src/app/admin/dashboard/page.tsx`
-- [ ] [P1] Add responsive mobile drawer for admin sidebar on smaller viewports
-- [ ] [P1] Implement smooth route transition animations and active link styling
+- [x] [P0] Remove Officer Login link from public homepage navigation
+- [x] [P0] Remove Admin Portal link from public homepage navigation
+- [x] [P0] Add Register (signup) link to homepage nav as citizen CTA
+- [x] [P0] Remove "Other portals" links (Officer/Admin) from citizen login page
+- [x] [P0] Verify `/officer/login` still accessible directly (private, not publicly linked)
+- [x] [P0] Verify `/admin/login` still accessible directly (private, not publicly linked)
+- [x] [P0] Confirm middleware still enforces role-based protection on all private routes
+- [x] [P0] Confirm Supabase RLS still enforces department isolation for officers
+- [x] [P0] TypeScript check passes (`npx tsc --noEmit` exit code 0)
 
----
-
-## Phase 5 — Department & Category Management (Admin)
-
-- [ ] [P0] Create Department management page at `src/app/admin/departments/page.tsx`
-- [ ] [P0] Build Department list view showing code, name, active officers, and open complaint count
-- [ ] [P0] Build Department creation and editing modal with code validation (e.g. `WATER`, `ROADS`)
-- [ ] [P0] Build Category & Subcategory management table per department
-- [ ] [P0] Configure default SLA hours per subcategory (e.g. Water Leak: 48h, Streetlight: 24h)
-- [ ] [P0] Create API endpoints `/api/admin/departments` (GET, POST, PATCH, DELETE)
-- [ ] [P0] Test dynamic department and category creation and verify database cascade
 
 ---
 
-## Phase 6 — Officer Management & Department Assignment (Admin)
+## Phase 4 — Admin Panel Foundation & Layout ✅ COMPLETED
 
-- [ ] [P0] Create Officer management page at `src/app/admin/officers/page.tsx`
-- [ ] [P0] Build internal officer account creation form using Supabase service role client
-- [ ] [P0] Implement department assignment and reassignment selector for officers
-- [ ] [P0] Build Officer roster table showing name, email, department, active load, and SLA rate
-- [ ] [P0] Create API endpoints `/api/admin/officers` (GET, POST, PATCH)
-- [ ] [P0] Test officer provisioning and verify officer can sign in at `/officer/login`
-
----
-
-## Phase 7 — Citizen Authentication & Profile Enhancement
-
-- [ ] [P0] Verify citizen public registration at `src/app/signup/page.tsx`
-- [ ] [P0] Verify citizen login at `src/app/login/page.tsx` and session redirection
-- [ ] [P1] Build Citizen profile page at `src/app/citizen/profile/page.tsx`
-- [ ] [P1] Display citizen complaint summary statistics on profile page
-- [ ] [P1] Implement profile update action for contact information
-- [ ] [P0] Test citizen registration, login, profile view, and logout flows
+- [x] [P0] Create responsive Admin layout at `src/app/admin/layout.tsx`
+- [x] [P0] Build Admin sidebar navigation with role-aware tabs (Central Authority vs Dept Admin)
+- [x] [P0] Build Admin header with admin profile badge, active department indicator, and notifications
+- [x] [P0] Build Admin dashboard shell at `src/app/admin/dashboard/page.tsx`
+- [x] [P1] Add responsive mobile drawer for admin sidebar on smaller viewports
+- [x] [P1] Implement smooth route transition animations and active link styling
 
 ---
 
-## Phase 8 — Citizen Dashboard & Navigation
+## Phase 4.1 — Site-Wide Professional Animation & Motion System ✅ COMPLETED
 
-- [ ] [P0] Enhance Citizen dashboard at `src/app/citizen/dashboard/page.tsx`
-- [ ] [P0] Display summary metric cards (Total, Active, Needs Action, Resolved)
-- [ ] [P0] Build prominent "Action Required" banner for complaints awaiting verification
-- [ ] [P0] Build complaint card list with permanent ID, status badge, priority, and SLA bar
-- [ ] [P1] Add filter tabs (All, Active, Verification Required, Closed) and search bar
-- [ ] [P1] Build empty states with quick "Report a Civic Issue" CTA
-- [ ] [P0] Test citizen dashboard across multiple complaint statuses
+- [x] [P0] Build reusable motion primitives in `src/components/ui/motion.tsx` (`<FadeIn>`, `<StaggerContainer>`, `<StaggerItem>`, `<AnimatedNumber>`, `<ModalWrapper>`, `<AiProcessingIndicator>`)
+- [x] [P0] Implement shimmer gradient skeleton loaders (`<SkeletonCard>`, `<SkeletonMetric>`, `<SkeletonRow>`)
+- [x] [P0] Integrate interactive motion across Citizen, Officer, and Admin dashboards
+- [x] [P1] Add spring physics, button press feedback, and glassmorphic micro-interactions in `src/app/globals.css`
+- [x] [P0] Verify zero performance degradation and clean exit/entry unmounting
 
 ---
 
-## Phase 9 — Complaint Submission (Photo + Geolocation + Description Validation)
+## Phase 4.2 — Global In-App Toast System & WebGL Background Integration ✅ COMPLETED
 
-- [ ] [P0] Enhance complaint submission wizard at `src/app/citizen/report/page.tsx`
-- [ ] [P0] Enforce Mandatory Input 1: Photo upload/camera capture with client format validation
-- [ ] [P0] Enforce Mandatory Input 2: GPS Geolocation + Reverse Geocoding to address
-- [ ] [P0] Implement interactive map pin picker for manual GPS adjustment
-- [ ] [P0] Enforce Mandatory Input 3: Description field with minimum character limit
-- [ ] [P0] Block form submission if ANY of the 3 mandatory inputs are missing
-- [ ] [P0] Upload photo to Supabase Storage `complaint-images` bucket
-- [ ] [P0] Add submission preview card summarizing photo, map pin, and description
-- [ ] [P0] Test validation blocking on missing inputs and verify successful upload
+- [x] [P0] Create unified global toast notification system in `src/context/ToastContext.tsx`
+- [x] [P0] Mount `ToastProvider` at root `src/app/layout.tsx` for site-wide accessibility
+- [x] [P0] Provide standalone `toast` singleton (`toast.success()`, `toast.error()`, `toast.warning()`, `toast.info()`, `toast.loading()`, `toast.update()`, `toast.dismiss()`)
+- [x] [P0] Support live operational state transitions (e.g. Loading $\rightarrow$ Success / Error)
+- [x] [P0] Completely eliminate all browser-native `alert()`, `confirm()`, and `prompt()` calls from `src/`
+- [x] [P0] Replace alerts in Citizen reporting, Officer login, Admin login, Password Reset, and Citizen auth
+- [x] [P0] Build React Bits `<Galaxy />` interactive WebGL shader in `src/components/ui/Galaxy.tsx` and `Galaxy.css`
+- [x] [P0] Integrate Galaxy component into homepage Section 4 ("Ready to Transform Your Community?") spanning through the Get Started button
+- [x] [P0] TypeScript checks pass with 0 errors (`npx tsc --noEmit`)
+
+---
+
+## Phase 5 — Department & Category Management (Admin) ✅ COMPLETED
+
+- [x] [P0] Create Department management page at `src/app/admin/departments/page.tsx`
+- [x] [P0] Build Department list view showing code, name, active officers, and open complaint count
+- [x] [P0] Build Department creation and editing modal with code validation (e.g. `WATER`, `ROADS`)
+- [x] [P0] Build Category & Subcategory management table per department
+- [x] [P0] Configure default SLA hours per subcategory (e.g. Water Leak: 48h, Streetlight: 24h)
+- [x] [P0] Create API endpoints `/api/admin/departments` (GET, POST, PATCH, DELETE)
+- [x] [P0] Test dynamic department and category creation and verify database cascade
+
+---
+
+## Phase 6 — Officer Management & Department Assignment (Admin) ✅ COMPLETED
+
+- [x] [P0] Create Officer management page at `src/app/admin/officers/page.tsx`
+- [x] [P0] Build internal officer account creation form using Supabase service role client
+- [x] [P0] Implement department assignment and reassignment selector for officers
+- [x] [P0] Build Officer roster table showing name, email, department, active load, and SLA rate
+- [x] [P0] Create API endpoints `/api/admin/officers` (GET, POST, PATCH, DELETE)
+- [x] [P0] Test officer provisioning and verify officer can sign in at `/officer/login`
+
+---
+
+## Phase 7 — Citizen Authentication & Profile Enhancement ✅ COMPLETED
+
+- [x] [P0] Verify citizen public registration at `src/app/signup/page.tsx`
+- [x] [P0] Verify citizen login at `src/app/login/page.tsx` and session redirection
+- [x] [P1] Build Citizen profile page at `src/app/citizen/profile/page.tsx`
+- [x] [P1] Display citizen complaint summary statistics on profile page
+- [x] [P1] Implement profile update action for contact information
+- [x] [P0] Test citizen registration, login, profile view, and logout flows
+
+---
+
+## Phase 8 — Citizen Dashboard & Navigation ✅ COMPLETED
+
+- [x] [P0] Enhance Citizen dashboard at `src/app/citizen/dashboard/page.tsx`
+- [x] [P0] Display summary metric cards (Total, Active, Needs Action, Resolved)
+- [x] [P0] Build prominent "Action Required" banner for complaints awaiting verification
+- [x] [P0] Build complaint card list with permanent ID, status badge, priority, and SLA bar
+- [x] [P1] Add filter tabs (All, Active, Verification Required, Closed) and search bar
+- [x] [P1] Build empty states with quick "Report a Civic Issue" CTA
+- [x] [P0] Test citizen dashboard across multiple complaint statuses
+
+---
+
+## Phase 9 — Complaint Submission (Photo + Geolocation + Description Validation) ✅ COMPLETED
+
+- [x] [P0] Enhance complaint submission wizard at `src/app/citizen/report/page.tsx`
+- [x] [P0] Enforce Mandatory Input 1: Photo upload/camera capture with client format validation
+- [x] [P0] Enforce Mandatory Input 2: GPS Geolocation + Reverse Geocoding to address
+- [x] [P0] Implement interactive map pin picker for manual GPS adjustment
+- [x] [P0] Enforce Mandatory Input 3: Description field with minimum character limit
+- [x] [P0] Block form submission if ANY of the 3 mandatory inputs are missing
+- [x] [P0] Upload photo to Supabase Storage `complaint-images` bucket
+- [x] [P0] Add submission preview card summarizing photo, map pin, and description
+- [x] [P0] Test validation blocking on missing inputs and verify successful upload
 
 ---
 
@@ -448,14 +487,15 @@
 
 ---
 
-## Phase 35 — UI/UX Government-Grade Aesthetic Polish & Responsive Design
+## Phase 35 — UI/UX Government-Grade Aesthetic Polish & Animation System ✅ COMPLETED
 
-- [ ] [P1] Refine global design tokens in `src/app/globals.css` (Government-grade dark theme, crisp borders)
-- [ ] [P1] Add loading skeleton states for complaint lists, dashboards, and detail views
-- [ ] [P1] Implement accessible empty states and interactive toast notifications
-- [ ] [P1] Verify responsive mobile layout for Citizen portal (complaint report & tracking)
-- [ ] [P1] Verify responsive desktop layout for Officer workspace and Admin data tables
-- [ ] [P1] Add subtle micro-animations for status badges, SLA countdowns, and tab transitions
+- [x] [P1] Refine global design tokens in `src/app/globals.css` (Government-grade dark theme, crisp borders, button & card micro-interactions)
+- [x] [P1] Add loading skeleton states for complaint lists, dashboards, and detail views (`src/components/ui/motion.tsx`)
+- [x] [P1] Implement accessible empty states and interactive toast / alert notifications
+- [x] [P1] Verify responsive mobile layout for Citizen portal with animated mobile drawer & backdrop blur
+- [x] [P1] Verify responsive desktop layout for Officer workspace and Admin data tables with smooth transitions
+- [x] [P1] Add subtle micro-animations for status badges, SLA countdowns, and tab transitions
+- [x] [P1] Ensure 100% compliance with `prefers-reduced-motion` for accessibility
 
 ---
 

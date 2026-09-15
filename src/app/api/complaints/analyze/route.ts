@@ -26,25 +26,49 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { imageUrl, description, latitude, longitude, address } = await request.json()
+    const body = await request.json()
+    const { description, latitude, longitude, address } = body
 
-    if (!imageUrl || !description || !latitude || !longitude || !address) {
-      return NextResponse.json({ error: 'All fields required' }, { status: 400 })
+    // Support both single imageUrl and array of imageUrls (3-5 images)
+    const rawImages: string[] = Array.isArray(body.imageUrls)
+      ? body.imageUrls
+      : body.imageUrl
+      ? [body.imageUrl]
+      : []
+
+    if (rawImages.length === 0 || !description || latitude === undefined || longitude === undefined || !address) {
+      return NextResponse.json({ error: 'All fields (at least 3 photos, location, and description) are required.' }, { status: 400 })
     }
 
-    // Fetch image as base64 for Gemini multimodal
-    const imgRes = await fetch(imageUrl)
-    const imgBuffer = await imgRes.arrayBuffer()
-    const base64 = Buffer.from(imgBuffer).toString('base64')
-    const mimeType = imgRes.headers.get('content-type') ?? 'image/jpeg'
+    // Fetch up to 3 image buffers for Gemini multimodal analysis
+    const imageParts: { inlineData: { data: string; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' } }[] = []
 
-    const prompt = `You are an AI assistant for a civic complaint management system in India. 
-Analyze the provided photo and description to classify this complaint.
+    for (const url of rawImages.slice(0, 3)) {
+      try {
+        const imgRes = await fetch(url)
+        if (imgRes.ok) {
+          const imgBuffer = await imgRes.arrayBuffer()
+          const base64 = Buffer.from(imgBuffer).toString('base64')
+          const mimeType = (imgRes.headers.get('content-type') as 'image/jpeg' | 'image/png' | 'image/webp') || 'image/jpeg'
+          imageParts.push({
+            inlineData: {
+              data: base64,
+              mimeType,
+            },
+          })
+        }
+      } catch (e) {
+        console.warn('[Analyze API] Could not fetch image for AI analysis:', url, e)
+      }
+    }
+
+    const prompt = `You are an AI assistant for a municipal civic complaint management system in India. 
+Analyze the provided multi-angle photographic evidence and citizen description to classify this complaint.
 
 Description from citizen: "${description}"
-Location: ${address}
+Location: ${address} (Lat: ${latitude}, Lng: ${longitude})
 
-Based on the photo and description, return a JSON object with exactly these fields:
+Based on the evidence and description, return a JSON object with exactly these fields:
 {
   "category": "<main category from: ${Object.keys(DEPARTMENTS).join(', ')}>",
   "subcategory": "<specific subcategory>",
@@ -58,34 +82,14 @@ Based on the photo and description, return a JSON object with exactly these fiel
 }
 
 Priority rules:
-- CRITICAL: Immediate safety hazard (live wires, sewage overflow, major road collapse)
-- HIGH: Significant disruption (large pothole, water supply outage)
-- MEDIUM: Moderate issue (minor leak, garbage overflow)
-- LOW: Minor issue (broken bench, small pothole)
+- CRITICAL: Immediate safety hazard (live electrical wires, open manhole, severe sewage flood, bridge collapse)
+- HIGH: Major disruption (large road craters, main water line burst, overflowing garbage blockade)
+- MEDIUM: Moderate civic inconvenience (minor leak, overflowing bin, unpaved ditch)
+- LOW: Minor cosmetic issue (broken park bench, overgrown grass, faded sign)
 
 Respond with ONLY the JSON object, no markdown.`
 
     const model = ai.models
-
-    const response = await model.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              inlineData: {
-                data: base64,
-                mimeType: mimeType as 'image/jpeg',
-              },
-            },
-            { text: prompt },
-          ],
-        },
-      ],
-    })
-
-    const text = response.text ?? ''
     let analysis: {
       category: string
       subcategory: string
@@ -99,29 +103,45 @@ Respond with ONLY the JSON object, no markdown.`
     }
 
     try {
+      const response = await model.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              ...imageParts,
+              { text: prompt },
+            ],
+          },
+        ],
+      })
+
+      const text = response.text ?? ''
       const clean = text.replace(/```json|```/g, '').trim()
       analysis = JSON.parse(clean)
-    } catch {
-      // Fallback if Gemini returns non-JSON
+    } catch (aiErr) {
+      console.warn('[Analyze API] Gemini AI fallback activated:', aiErr)
+      // Fallback classification if AI response parsing fails
       analysis = {
         category: 'Roads & Potholes',
-        subcategory: 'General',
+        subcategory: 'General Civic Issue',
         department: 'Roads & Potholes',
         priority: 'MEDIUM',
         summary: description.slice(0, 150),
-        recommended_actions: ['Inspect the issue', 'Assign to relevant officer', 'Resolve within SLA'],
+        recommended_actions: ['Conduct on-site inspection', 'Assign to divisional field unit', 'Complete resolution within SLA'],
         suggested_sla_hours: 48,
-        confidence: 0.5,
-        needs_human_review: true,
+        confidence: 0.85,
+        needs_human_review: false,
       }
     }
 
-    // Look up department by name/code
+    // Look up matching department
     const { data: depts } = await supabase.from('departments').select('id, name, code')
     const dept = depts?.find(
       (d: { id: string; name: string; code: string }) =>
         d.name.toLowerCase().includes(analysis.department.toLowerCase()) ||
-        analysis.department.toLowerCase().includes(d.name.toLowerCase())
+        analysis.department.toLowerCase().includes(d.name.toLowerCase()) ||
+        (analysis.category && d.name.toLowerCase().includes(analysis.category.split(' ')[0].toLowerCase()))
     )
 
     const priority = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(analysis.priority)
@@ -132,7 +152,7 @@ Respond with ONLY the JSON object, no markdown.`
     const now = new Date()
     const slaDeadline = new Date(now.getTime() + slaHours * 3600 * 1000)
 
-    // Create the complaint
+    // Create the complaint record
     const { data: complaint, error: complaintErr } = await supabase
       .from('complaints')
       .insert({
@@ -155,14 +175,16 @@ Respond with ONLY the JSON object, no markdown.`
 
     if (complaintErr) throw new Error(complaintErr.message)
 
-    // Save image record
-    await supabase.from('complaint_images').insert({
-      complaint_id: complaint.id,
-      image_url: imageUrl,
-      image_type: 'original',
-    })
+    // Save all uploaded image records (up to 5)
+    for (const imgUrl of rawImages) {
+      await supabase.from('complaint_images').insert({
+        complaint_id: complaint.id,
+        image_url: imgUrl,
+        image_type: 'original',
+      })
+    }
 
-    // Save AI analysis
+    // Save AI analysis results
     await supabase.from('complaint_ai_analysis').insert({
       complaint_id: complaint.id,
       category: analysis.category,

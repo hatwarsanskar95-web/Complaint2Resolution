@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const pathname = request.nextUrl.pathname
-  const role = user?.user_metadata?.role ?? 'citizen'
+  const role = (user?.user_metadata?.role || 'citizen').toLowerCase()
 
   // 1. Protect Admin routes (must be dept_admin or super_admin)
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
@@ -67,15 +67,17 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 4. Redirect already authenticated users from auth pages to their dashboards
-  if (user && (pathname === '/login' || pathname === '/signup' || pathname === '/officer/login' || pathname === '/admin/login')) {
-    if (role === 'super_admin' || role === 'dept_admin') {
-      return NextResponse.redirect(new URL('/admin/dashboard', request.url))
+  // 4. Redirect already authenticated users from matching auth pages to their dashboards
+  if (user) {
+    if ((pathname === '/login' || pathname === '/signup') && role === 'citizen') {
+      return NextResponse.redirect(new URL('/citizen/dashboard', request.url))
     }
-    if (role === 'officer') {
+    if (pathname === '/officer/login' && role === 'officer') {
       return NextResponse.redirect(new URL('/officer/dashboard', request.url))
     }
-    return NextResponse.redirect(new URL('/citizen/dashboard', request.url))
+    if (pathname === '/admin/login' && (role === 'super_admin' || role === 'dept_admin')) {
+      return NextResponse.redirect(new URL('/admin/dashboard', request.url))
+    }
   }
 
   return supabaseResponse
