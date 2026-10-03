@@ -726,34 +726,86 @@ The core project architecture, database schema, remote Supabase infrastructure, 
 
 - **Authentication**: Multi-role Supabase Auth active for Citizens (`/login`, `/signup`), Officers (`/officer/login`), and Admins (`/admin/login`). Protected by server-side `src/middleware.ts` and `src/lib/auth.ts`.
 - **Citizen Portal**: 100% complete and operational:
-  - **Dashboard**: Hero banner ("Cleaner, Greener, Happier India"), metric cards, active verification banners, search, and filters.
-  - **Location Selection**: Full-screen interactive 2-column map modal with Leaflet `scrollWheelZoom: false` page scroll fix, search, address, coordinates, and "Use This Location" button.
-  - **3-Step Report Wizard**: Photo evidence upload (3-5 required slots), geotagged map location confirmation, and detailed description validation.
-  - **Resolution Verification**: Review officer action proof, confirm or dispute with mandatory photo.
-  - **Help & Support**: Category FAQ accordion (no chatbots, single answer expansion).
-  - **Profile**: 2-column split cards (Profile Info with inline name editing + Location Active status), Account Settings with dedicated red Logout button.
-- **Officer Panel**: Operational workspace at `/officer/*` with department-scoped complaint queue, SLA countdowns, and resolution evidence submission.
-- **Admin Panel**: Operational dashboard shell at `/admin/*` with department management (`/admin/departments`) and officer provisioning (`/admin/officers`).
-- **Supabase Backend**: Live project `Complaint2Resolution` with 18 RLS tables, triggers (`CR-YYYY-XXXXXX` ID generator, status audit logger), and `complaint-images` storage bucket.
-- **Animations**: Unified Framer Motion transition system (`PageTransition`, `ScrollReveal`, `AnimatedButton`, `ModalWrapper`) across all portals.
-- **Known Issues**: None. Build compiles cleanly with zero TypeScript errors.
+  - **Dashboard**: Hero banner, metric cards, active verification banners, search, and filters.
+  - **Location Selection**: Full-screen interactive 2-column map modal with Leaflet.
+  - **3-Step Report Wizard**: Photo evidence upload, geotagged map location, description validation.
+  - **Complaint Detail View**: Separated Citizen vs AI sections, SLA timer bar, visual audit timeline.
+  - **Public Tracker**: `/track` page searchable by `CR-YYYY-XXXXXX` permanent ID.
+  - **Profile**: 2-column split cards with inline name editing and account settings.
+- **Officer Portal**: Full department-scoped operational workspace:
+  - **Server-side Auth** (Phase 15): Layout resolves real department from `officer_departments`, verifies role server-side, blocks non-officers.
+  - **Department Badge**: Sidebar shows live assigned department name + code pulled from DB.
+  - **7-Tab Queue Dashboard** (Phase 16): New, Assigned, In Progress, Near SLA, SLA Breached, Pending Verification, Closed — all department-filtered. Live count badges per tab.
+  - **Claim Complaint**: Inline "Claim" button transitions `RECEIVED → ASSIGNED`, logs to `complaint_status_history`.
+  - **3-Column Workspace** (Phase 14): Left (photo zoom modal, citizen evidence, location), Right (AI Action Brief, SLA bar, resolution submission), timeline + evidence locker.
+  - **AI Action Brief** (Phase 14): Priority-aware color theming, interactive checkable action steps, SLA countdown bar, confidence indicator, critical/human-review alerts.
+  - **PDF Download** (Phase 13): "Download Official PDF" button — opens 5-section print-ready government report in new tab.
+- **Admin Panel**: Full operational dashboard at `/admin/*`:
+  - **All nav items working** (no 404s): Complaints, Escalations, Reports, Settings all have real pages.
+  - **Settings Page**: Account info from real DB, security, notification preferences, platform info.
+  - **Reports**: Department performance breakdown, category distribution, live resolution rates.
+  - **Departments**: Full CRUD management at `/admin/departments`.
+  - **Officers**: Provisioning and assignment at `/admin/officers`.
+  - **Dashboard**: All metrics pulled live from database — zero hardcoded demo data.
+- **AI Engine** (Phase 10): Server-side Gemini multimodal analysis, Zod validation, structured output, exponential backoff, `AI_PROCESSING_FAILED` fallback.
+- **Smart Routing** (Phase 11): `routingService.ts` — auto-routes ≥0.70 confidence to department, <0.70 to human review. SLA deadline calculated and assigned on submission.
+- **PDF Generation** (Phase 13): HTML→browser-print (no jsPDF). 5-section official report: Core IDs, Citizen Info + Photo, AI Analysis + Action Steps, Status Timeline, Sign-off block.
+- **Supabase Backend**: Live with 18 RLS tables, triggers (`CR-YYYY-XXXXXX` ID generator, status audit logger), `complaint-images` and `resolution-evidence` storage buckets.
+- **Animations**: Unified Framer Motion system (`PageTransition`, `FadeIn`, `StaggerContainer`, `AnimatedNumber`) across all portals.
+- **Build Health**: `npx tsc --noEmit` → exit code 0, zero errors. `npm run dev` serves all routes cleanly.
+
+---
+
+## SESSION LOG
+
+### 2026-10-03 — Phase 13–16 + Admin 404 Fixes
+- **Developer / Agent**: Antigravity Assistant
+- **Phases Completed**: Phase 13 ✅, Phase 14 ✅, Phase 15 ✅, Phase 16 ✅ + Admin Settings page + 404 nav fixes
+- **Work Completed**:
+  - **Admin 404 Fixes**: Created missing `/admin/settings/page.tsx`. Verified Complaints, Escalations, Reports existed. All 4 nav items now load.
+  - **Admin Settings Page**: Account info (real DB via `AdminContext`), security info, notification toggles UI, platform metadata, about section.
+  - **Phase 13 — PDF Generation**: Replaced broken server-side `jsPDF` with HTML→browser-print route. Returns styled `text/html` with print CSS. 5 official sections: Core IDs, Citizen Info + photo, AI Analysis + action steps, Status Timeline, Sign-off. "Download Official PDF" button in officer workspace.
+  - **Phase 14 — AI Action Brief + 3-Column Workspace**: `AiActionBrief.tsx` — priority-aware color system, live SLA bar, interactive `CheckSquare` action checklist, confidence %, critical/human-review warning banners. `OfficerComplaintDetailClient.tsx` rebuilt as 2-column layout: Left (photo zoom modal, citizen evidence), Right (AI brief, SLA, resolution submission), bottom (timeline, evidence locker).
+  - **Phase 15 — Officer Auth & Department Badge**: `officer/(portal)/layout.tsx` rewritten as server component. Fetches profile role → blocks if not officer/admin. Resolves `officer_departments` for dept name/code. Computes officer initials. `OfficerLayoutClient.tsx` receives all as props, renders department badge in sidebar and header.
+  - **Phase 16 — 7-Tab Queue Dashboard**: Dashboard page splits all dept-filtered complaints into 7 queues (New, Assigned, In Progress, Near SLA, SLA Breached, Pending Verification, Closed). `OfficerQueueClient.tsx`: 4 metric cards, tab bar with live counts, per-card SLA bars + countdown, search filter, inline "Claim" button on New queue (transitions `RECEIVED → ASSIGNED`, inserts `complaint_status_history` record).
+- **Files Created**:
+  - `src/app/admin/(portal)/settings/page.tsx`
+  - `src/app/api/complaints/[id]/pdf/route.ts` (overwritten)
+  - `src/components/officer/AiActionBrief.tsx`
+  - `src/components/officer/OfficerLayoutClient.tsx`
+  - `src/components/officer/OfficerQueueClient.tsx`
+- **Files Modified**:
+  - `src/components/officer/OfficerComplaintDetailClient.tsx`
+  - `src/app/officer/(portal)/layout.tsx`
+  - `src/app/officer/(portal)/dashboard/page.tsx`
+  - `task.md` (Phases 13–16 marked ✅)
+- **TypeScript**: `npx tsc --noEmit` → exit code 0, zero errors.
+- **Git**: Committed and pushed — `[main b9fa9f0] Complete Phase 16 - Officer Dashboard` (24 files changed).
 
 ---
 
 ## NEXT TASKS
 
-The next developer/agent should execute the following tasks in order:
+The next developer/agent should execute the following phases in order:
 
-1. **Refactor Server-Side Gemini Route (`src/app/api/complaints/analyze/route.ts`)**:
-   - Implement multimodal prompt analyzing uploaded image + citizen description.
-   - Enforce structured JSON output using Zod schema validation.
-   - Extract: Category, Subcategory, Department, Priority (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), Summary, Recommended Action steps, Suggested SLA hours, Confidence score.
-2. **Implement Smart Department Routing (`src/lib/services/routingService.ts`)**:
-   - Auto-route high-confidence complaints ($\ge 0.70$) to department and set status `RECEIVED`.
-   - Route low-confidence complaints ($< 0.70$) to Human Review queue with status `SUBMITTED`.
-3. **Enhance Citizen Complaint Details & Visual Timeline (`src/app/citizen/complaints/[id]/page.tsx`)**:
-   - Build chronological visual timeline displaying all status transition events.
-4. **Implement Official Complaint PDF Generation Service (`src/app/api/complaints/[id]/pdf/route.ts`)**.
+1. **Phase 17 — Officer Complaint Handling & Status Lifecycle State Machine**:
+   - Create Status Action Bar enforcing valid transitions: `RECEIVED → ASSIGNED → IN_PROGRESS → RESOLUTION_SUBMITTED`.
+   - Create API `/api/officer/complaints/[id]/status` (POST) for state transitions.
+   - Log every transition to `complaint_status_history` with officer ID + notes.
+
+2. **Phase 18 — SLA Engine, Countdown System & Warning Thresholds**:
+   - Build centralized `src/lib/services/slaService.ts`.
+   - Build Live SLA Countdown component with 5 color states (normal→reminder→warning→critical→breached).
+   - Log threshold transition records to `sla_events` table.
+
+3. **Phase 19 — SLA Breach Detection & Automated Escalation Hierarchy**:
+   - Implement `escalationService.ts` — Level 1 (Supervisor) → Level 2 (Dept Admin) → Level 3 (Central Authority).
+   - Insert escalation records in `escalations` table with delay duration and reason.
+
+4. **Phase 20 — Resolution Evidence Collection** (Before/After Photos + Action Notes):
+   - Enforce mandatory 3 fields: action note + before photo + after photo.
+   - Upload to `resolution-evidence` bucket, save record to `resolution_submissions`.
 
 ---
 *End of WORKDONE.md — Complaint2Resolution*
+
