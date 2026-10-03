@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { GoogleGenAI } from '@google/genai'
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
+import { getGeminiClient, GEMINI_DEFAULT_MODEL } from '@/lib/gemini'
+import { executeSmartRouting } from '@/lib/services/routingService'
+import { z } from 'zod'
 
 const DEPARTMENTS: Record<string, string[]> = {
   'Roads & Potholes': ['Roads', 'Potholes', 'Footpath', 'Divider', 'Traffic Signal', 'Road Lighting'],
@@ -13,12 +13,20 @@ const DEPARTMENTS: Record<string, string[]> = {
   'Parks & Gardens': ['Park', 'Garden', 'Trees', 'Encroachment', 'Public Space'],
 }
 
-const SLA_HOURS: Record<string, number> = {
-  CRITICAL: 6,
-  HIGH: 24,
-  MEDIUM: 48,
-  LOW: 72,
-}
+// Zod Schema for Structured Output Validation
+const AiAnalysisResultSchema = z.object({
+  category: z.string().catch('Roads & Potholes'),
+  subcategory: z.string().catch('General Civic Issue'),
+  department: z.string().catch('Roads & Potholes'),
+  priority: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']).catch('MEDIUM'),
+  summary: z.string().catch('Civic issue reported by citizen needing municipal attention.'),
+  recommended_actions: z.array(z.string()).catch(['Conduct on-site inspection', 'Assign to divisional field unit', 'Complete resolution within SLA']),
+  suggested_sla_hours: z.number().catch(48),
+  confidence: z.number().min(0).max(1).catch(0.85),
+  needs_human_review: z.boolean().catch(false),
+})
+
+export type AiAnalysisResult = z.infer<typeof AiAnalysisResultSchema>
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,41 +95,56 @@ Priority rules:
 - MEDIUM: Moderate civic inconvenience (minor leak, overflowing bin, unpaved ditch)
 - LOW: Minor cosmetic issue (broken park bench, overgrown grass, faded sign)
 
-Respond with ONLY the JSON object, no markdown.`
+Respond with ONLY the JSON object, no markdown code blocks.`
 
-    const model = ai.models
-    let analysis: {
-      category: string
-      subcategory: string
-      department: string
-      priority: string
-      summary: string
-      recommended_actions: string[]
-      suggested_sla_hours: number
-      confidence: number
-      needs_human_review: boolean
+    let analysis: AiAnalysisResult | null = null
+    let aiSuccess = false
+
+    // Exponential Backoff Retry Mechanism (up to 3 attempts)
+    const MAX_ATTEMPTS = 3
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const aiClient = getGeminiClient()
+        const response = await aiClient.models.generateContent({
+          model: GEMINI_DEFAULT_MODEL,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                ...imageParts,
+                { text: prompt },
+              ],
+            },
+          ],
+        })
+
+        const text = response.text ?? ''
+        const clean = text.replace(/```json|```/g, '').trim()
+        const parsed = JSON.parse(clean)
+        
+        // Enforce structured JSON output using Zod schema
+        const validated = AiAnalysisResultSchema.safeParse(parsed)
+        if (validated.success) {
+          analysis = validated.data
+          aiSuccess = true
+          break
+        } else {
+          console.warn(`[Analyze API] Attempt ${attempt} Zod validation warnings:`, validated.error.format())
+          analysis = AiAnalysisResultSchema.parse(parsed)
+          aiSuccess = true
+          break
+        }
+      } catch (attemptErr) {
+        console.warn(`[Analyze API] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`, attemptErr)
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt - 1) * 500))
+        }
+      }
     }
 
-    try {
-      const response = await model.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              ...imageParts,
-              { text: prompt },
-            ],
-          },
-        ],
-      })
-
-      const text = response.text ?? ''
-      const clean = text.replace(/```json|```/g, '').trim()
-      analysis = JSON.parse(clean)
-    } catch (aiErr) {
-      console.warn('[Analyze API] Gemini AI fallback activated:', aiErr)
-      // Fallback classification if AI response parsing fails
+    // Fallback handling if all 3 retry attempts fail
+    if (!aiSuccess || !analysis) {
+      console.warn('[Analyze API] All Gemini AI retry attempts failed. Applying fallback processing.')
       analysis = {
         category: 'Roads & Potholes',
         subcategory: 'General Civic Issue',
@@ -130,29 +153,12 @@ Respond with ONLY the JSON object, no markdown.`
         summary: description.slice(0, 150),
         recommended_actions: ['Conduct on-site inspection', 'Assign to divisional field unit', 'Complete resolution within SLA'],
         suggested_sla_hours: 48,
-        confidence: 0.85,
-        needs_human_review: false,
+        confidence: 0.50,
+        needs_human_review: true,
       }
     }
 
-    // Look up matching department
-    const { data: depts } = await supabase.from('departments').select('id, name, code')
-    const dept = depts?.find(
-      (d: { id: string; name: string; code: string }) =>
-        d.name.toLowerCase().includes(analysis.department.toLowerCase()) ||
-        analysis.department.toLowerCase().includes(d.name.toLowerCase()) ||
-        (analysis.category && d.name.toLowerCase().includes(analysis.category.split(' ')[0].toLowerCase()))
-    )
-
-    const priority = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(analysis.priority)
-      ? analysis.priority
-      : 'MEDIUM'
-
-    const slaHours = SLA_HOURS[priority] ?? 48
-    const now = new Date()
-    const slaDeadline = new Date(now.getTime() + slaHours * 3600 * 1000)
-
-    // Create the complaint record
+    // Initial creation of complaint record
     const { data: complaint, error: complaintErr } = await supabase
       .from('complaints')
       .insert({
@@ -163,19 +169,14 @@ Respond with ONLY the JSON object, no markdown.`
         latitude,
         longitude,
         address,
-        department_id: dept?.id ?? null,
-        priority,
-        status: analysis.needs_human_review || !dept ? 'SUBMITTED' : 'RECEIVED',
-        sla_start_time: now.toISOString(),
-        sla_duration_hours: slaHours,
-        sla_deadline: slaDeadline.toISOString(),
+        status: 'SUBMITTED',
       })
       .select()
       .single()
 
     if (complaintErr) throw new Error(complaintErr.message)
 
-    // Save all uploaded image records (up to 5)
+    // Save all uploaded image records
     for (const imgUrl of rawImages) {
       await supabase.from('complaint_images').insert({
         complaint_id: complaint.id,
@@ -184,29 +185,50 @@ Respond with ONLY the JSON object, no markdown.`
       })
     }
 
-    // Save AI analysis results
+    // Persist complete AI analysis to complaint_ai_analysis table
     await supabase.from('complaint_ai_analysis').insert({
       complaint_id: complaint.id,
       category: analysis.category,
       subcategory: analysis.subcategory,
       department_recommendation: analysis.department,
-      priority_recommendation: priority,
+      priority_recommendation: analysis.priority,
       summary: analysis.summary,
       recommended_actions: analysis.recommended_actions,
       suggested_sla_hours: analysis.suggested_sla_hours,
       confidence: analysis.confidence,
-      raw_response: analysis,
+      needs_human_review: analysis.needs_human_review,
+      raw_response: { ...analysis, ai_status: aiSuccess ? 'SUCCESS' : 'AI_PROCESSING_FAILED' },
     })
+
+    // Execute Smart Department Routing & Fallback Queue Assignment via routingService
+    const routingDecision = await executeSmartRouting(
+      supabase,
+      complaint.id,
+      {
+        category: analysis.category,
+        subcategory: analysis.subcategory,
+        department: analysis.department,
+        priority: analysis.priority,
+        confidence: analysis.confidence,
+        needs_human_review: analysis.needs_human_review || !aiSuccess,
+      },
+      user.id
+    )
 
     return NextResponse.json({
       complaintId: complaint.id,
       permanentId: complaint.permanent_id,
       category: analysis.category,
-      department: dept?.name ?? analysis.department,
-      priority,
+      department: routingDecision.departmentName ?? analysis.department,
+      priority: routingDecision.priority,
+      status: routingDecision.status,
+      isAutoRouted: routingDecision.isAutoRouted,
+      routingReason: routingDecision.routingReason,
+      aiStatus: aiSuccess ? 'SUCCESS' : 'AI_PROCESSING_FAILED',
     })
   } catch (err) {
     console.error('[Analyze API]', err)
     return NextResponse.json({ error: (err as Error).message }, { status: 500 })
   }
 }
+

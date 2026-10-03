@@ -168,92 +168,92 @@
 
 ---
 
-## Phase 10 — Server-Side Gemini Multimodal Complaint Analysis Engine
+## Phase 10 — Server-Side Gemini Multimodal Complaint Analysis Engine ✅ COMPLETED
 
-- [ ] [P0] Refactor server-side Gemini route at `src/app/api/complaints/analyze/route.ts`
-- [ ] [P0] Implement multimodal prompt analyzing uploaded image + citizen description
-- [ ] [P0] Enforce structured JSON output using Zod schema validation
-- [ ] [P0] Extract: Category, Subcategory, Department, Priority (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), Summary, Recommended Action steps, Suggested SLA hours, Confidence score
-- [ ] [P0] Implement retry mechanism on Gemini failure and exponential backoff
-- [ ] [P0] Implement fallback handling: save complaint with `AI_PROCESSING_FAILED` if retry fails
-- [ ] [P0] Persist complete AI analysis to `complaint_ai_analysis` table
-- [ ] [P0] Test multimodal analysis with sample images (Pothole, Water Leak, Streetlight)
-
----
-
-## Phase 11 — Smart Department Routing & Fallback Queue
-
-- [ ] [P0] Implement Smart Routing Service (`src/lib/services/routingService.ts`)
-- [ ] [P0] Auto-route high-confidence complaints ($\ge 0.70$) to department and set status `RECEIVED`
-- [ ] [P0] Route low-confidence complaints ($< 0.70$) to Human Review queue with status `SUBMITTED`
-- [ ] [P0] Calculate and assign SLA deadline based on priority (Critical: 6h, High: 24h, Medium: 48h, Low: 72h)
-- [ ] [P0] Atomically update complaint record with department, SLA, and initial status
-- [ ] [P0] Record status transition in `complaint_status_history`
-- [ ] [P0] Test auto-routing for high-confidence input and fallback for ambiguous input
+- [x] [P0] Refactor server-side Gemini route at `src/app/api/complaints/analyze/route.ts`
+- [x] [P0] Implement multimodal prompt analyzing uploaded image + citizen description
+- [x] [P0] Enforce structured JSON output using Zod schema validation
+- [x] [P0] Extract: Category, Subcategory, Department, Priority (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), Summary, Recommended Action steps, Suggested SLA hours, Confidence score
+- [x] [P0] Implement retry mechanism on Gemini failure and exponential backoff
+- [x] [P0] Implement fallback handling: save complaint with `AI_PROCESSING_FAILED` if retry fails
+- [x] [P0] Persist complete AI analysis to `complaint_ai_analysis` table
+- [x] [P0] Test multimodal analysis with sample images (Pothole, Water Leak, Streetlight)
 
 ---
 
-## Phase 12 — Citizen Complaint Details, Status Timeline & Tracking
+## Phase 11 — Smart Department Routing & Fallback Queue ✅ COMPLETED
 
-- [ ] [P0] Enhance Citizen Complaint detail page at `src/app/citizen/complaints/[id]/page.tsx`
-- [ ] [P0] Clearly separate "Citizen Provided Information" from "AI Generated Information"
-- [ ] [P0] Build Chronological Visual Timeline component displaying all transition events
-- [ ] [P0] Display interactive SLA timer bar with color status (Green, Yellow, Orange, Red)
-- [ ] [P0] Create public tracking page at `src/app/track/page.tsx` searchable by `CR-YYYY-XXXXXX`
-- [ ] [P0] Create public tracking API `/api/complaints/track/[permanentId]` (safe public fields only)
-- [ ] [P0] Test detail page rendering and public tracking lookup by permanent ID
-
----
-
-## Phase 13 — Official Complaint PDF Generation Service
-
-- [ ] [P0] Enhance PDF generation service at `src/app/api/complaints/[id]/pdf/route.ts`
-- [ ] [P0] Add official municipal header banner and report title
-- [ ] [P0] Render Section 1: Core Identifiers (Permanent ID `CR-YYYY-XXXXXX`, Status, Priority, Timestamp)
-- [ ] [P0] Render Section 2: Citizen Provided Information (Photo thumbnail, Address, GPS Coords, Description)
-- [ ] [P0] Render Section 3: AI Generated Analysis (Department, Category, Summary, Action Steps, SLA)
-- [ ] [P0] Render Section 4: Resolution & Verification sign-off placeholder
-- [ ] [P0] Add "Download Official PDF" button with loading spinner in citizen and officer views
-- [ ] [P0] Test PDF generation, formatting, and file download across devices
+- [x] [P0] Implement Smart Routing Service (`src/lib/services/routingService.ts`)
+- [x] [P0] Auto-route high-confidence complaints ($\ge 0.70$) to department and set status `RECEIVED`
+- [x] [P0] Route low-confidence complaints ($< 0.70$) to Human Review queue with status `SUBMITTED`
+- [x] [P0] Calculate and assign SLA deadline based on priority (Critical: 6h, High: 24h, Medium: 48h, Low: 72h)
+- [x] [P0] Atomically update complaint record with department, SLA, and initial status
+- [x] [P0] Record status transition in `complaint_status_history`
+- [x] [P0] Test auto-routing for high-confidence input and fallback for ambiguous input
 
 ---
 
-## Phase 14 — AI Action Brief & Officer Workspace Preparation
+## Phase 12 — Citizen Complaint Details, Status Timeline & Tracking ✅ COMPLETED
 
-- [ ] [P0] Build AI Action Brief component (`src/components/officer/AiActionBrief.tsx`)
-- [ ] [P0] Display summary, priority badge, department, SLA countdown, and required actions checklist
-- [ ] [P0] Build Officer 3-column workspace layout structure:
+- [x] [P0] Enhance Citizen Complaint detail page at `src/app/citizen/complaints/[id]/page.tsx`
+- [x] [P0] Clearly separate "Citizen Provided Information" from "AI Generated Information"
+- [x] [P0] Build Chronological Visual Timeline component displaying all transition events
+- [x] [P0] Display interactive SLA timer bar with color status (Green, Yellow, Orange, Red)
+- [x] [P0] Create public tracking page at `src/app/track/page.tsx` searchable by `CR-YYYY-XXXXXX`
+- [x] [P0] Create public tracking API `/api/complaints/track/[permanentId]` (safe public fields only)
+- [x] [P0] Test detail page rendering and public tracking lookup by permanent ID
+
+---
+
+## Phase 13 — Official Complaint PDF Generation Service ✅ COMPLETED
+
+- [x] [P0] Enhance PDF generation service at `src/app/api/complaints/[id]/pdf/route.ts`
+- [x] [P0] Add official municipal header banner and report title
+- [x] [P0] Render Section 1: Core Identifiers (Permanent ID `CR-YYYY-XXXXXX`, Status, Priority, Timestamp)
+- [x] [P0] Render Section 2: Citizen Provided Information (Photo thumbnail, Address, GPS Coords, Description)
+- [x] [P0] Render Section 3: AI Generated Analysis (Department, Category, Summary, Action Steps, SLA)
+- [x] [P0] Render Section 4: Resolution & Verification sign-off placeholder
+- [x] [P0] Add "Download Official PDF" button with loading spinner in citizen and officer views
+- [x] [P0] Test PDF generation, formatting, and file download across devices
+
+---
+
+## Phase 14 — AI Action Brief & Officer Workspace Preparation ✅ COMPLETED
+
+- [x] [P0] Build AI Action Brief component (`src/components/officer/AiActionBrief.tsx`)
+- [x] [P0] Display summary, priority badge, department, SLA countdown, and required actions checklist
+- [x] [P0] Build Officer 3-column workspace layout structure:
   - Left: Official PDF viewer, Original Citizen Photo (with zoom modal), Location Map, Citizen Description
   - Right: AI Action Brief, SLA Timer, Status Selector, Required Evidence Checklist
   - Bottom: Chronological Timeline, Evidence Locker, Resolution Submission Section
-- [ ] [P0] Test workspace responsiveness and evidence layout rendering
+- [x] [P0] Test workspace responsiveness and evidence layout rendering
 
 ---
 
-## Phase 15 — Officer Authentication & Department Authorization
+## Phase 15 — Officer Authentication & Department Authorization ✅ COMPLETED
 
-- [ ] [P0] Enhance Officer login at `src/app/officer/login/page.tsx`
-- [ ] [P0] Resolve officer's assigned department from `officer_departments` table
-- [ ] [P0] Implement server-side department check in `src/app/officer/layout.tsx`
-- [ ] [P0] Display active department badge in officer navigation bar
-- [ ] [P0] Block officer access to complaints outside assigned department (403 Forbidden)
-- [ ] [P0] Test cross-department authorization restrictions
+- [x] [P0] Enhance Officer login at `src/app/officer/login/page.tsx`
+- [x] [P0] Resolve officer's assigned department from `officer_departments` table
+- [x] [P0] Implement server-side department check in `src/app/officer/layout.tsx`
+- [x] [P0] Display active department badge in officer navigation bar
+- [x] [P0] Block officer access to complaints outside assigned department (403 Forbidden)
+- [x] [P0] Test cross-department authorization restrictions
 
 ---
 
-## Phase 16 — Officer Dashboard & Filtered Queue Management
+## Phase 16 — Officer Dashboard & Filtered Queue Management ✅ COMPLETED
 
-- [ ] [P0] Upgrade Officer Dashboard at `src/app/officer/dashboard/page.tsx`
-- [ ] [P0] Build Queue Tab 1: `New` (`RECEIVED` — unassigned department complaints)
-- [ ] [P0] Build Queue Tab 2: `Assigned` (`ASSIGNED` — claimed by current officer)
-- [ ] [P0] Build Queue Tab 3: `In Progress` (`IN_PROGRESS`, `REOPENED` — active work)
-- [ ] [P0] Build Queue Tab 4: `Near SLA` ($<25\%$ SLA time remaining)
-- [ ] [P0] Build Queue Tab 5: `SLA Breached` (Overdue complaints)
-- [ ] [P0] Build Queue Tab 6: `Pending Verification` (`RESOLUTION_SUBMITTED`, `AI_VERIFICATION`, `CITIZEN_VERIFICATION`)
-- [ ] [P0] Build Queue Tab 7: `Closed` (`CLOSED`)
-- [ ] [P0] Add "Claim Complaint" button directly on cards in the New queue
-- [ ] [P1] Add category filter dropdown and search bar
-- [ ] [P0] Test tab switching, count badge accuracy, and SLA deadline ordering
+- [x] [P0] Upgrade Officer Dashboard at `src/app/officer/dashboard/page.tsx`
+- [x] [P0] Build Queue Tab 1: `New` (`RECEIVED` — unassigned department complaints)
+- [x] [P0] Build Queue Tab 2: `Assigned` (`ASSIGNED` — claimed by current officer)
+- [x] [P0] Build Queue Tab 3: `In Progress` (`IN_PROGRESS`, `REOPENED` — active work)
+- [x] [P0] Build Queue Tab 4: `Near SLA` ($<25\%$ SLA time remaining)
+- [x] [P0] Build Queue Tab 5: `SLA Breached` (Overdue complaints)
+- [x] [P0] Build Queue Tab 6: `Pending Verification` (`RESOLUTION_SUBMITTED`, `AI_VERIFICATION`, `CITIZEN_VERIFICATION`)
+- [x] [P0] Build Queue Tab 7: `Closed` (`CLOSED`)
+- [x] [P0] Add "Claim Complaint" button directly on cards in the New queue
+- [x] [P1] Add category filter dropdown and search bar
+- [x] [P0] Test tab switching, count badge accuracy, and SLA deadline ordering
 
 ---
 

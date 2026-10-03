@@ -43,7 +43,7 @@ const navItems: NavItem[] = [
   { href: '/admin/officers', label: 'Officers', icon: <Users size={18} /> },
   { href: '/admin/complaints', label: 'Complaints', icon: <FileText size={18} /> },
   { href: '/admin/escalations', label: 'Escalations', icon: <AlertTriangle size={18} /> },
-  { href: '/admin/analytics', label: 'Reports', icon: <BarChart3 size={18} /> },
+  { href: '/admin/reports', label: 'Reports', icon: <BarChart3 size={18} /> },
   { href: '/admin/settings', label: 'Settings', icon: <Settings size={18} /> },
 ]
 

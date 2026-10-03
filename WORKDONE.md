@@ -10,9 +10,9 @@
 
 ## Current Project Status
 
-- **Current Phase**: Phase 9 — Complaint Submission (Photo + Geolocation + Description)
-- **Overall Status**: IN PROGRESS (Phases 0, 1, 2, 3, 3.1, 4, 4.1, 4.2, 5, 6, 7, 8, 9 complete)
-- **Last Updated**: 2026-09-15
+- **Current Phase**: Phase 13 — Official Complaint PDF Generation Service
+- **Overall Status**: IN PROGRESS (Phases 0, 1, 2, 3, 3.1, 4, 4.1, 4.2, 5, 6, 7, 8, 9, 10, 11, 12 complete)
+- **Last Updated**: 2026-10-03
 - **TypeScript Status**: Clean (0 errors on `npx tsc --noEmit`)
 - **Build Status**: Passing (`npm run build` exits 0 with Next.js Turbopack)
 
@@ -20,23 +20,21 @@
 
 ## Current State Summary
 
-The core project architecture, database schema, remote Supabase infrastructure, multi-role authentication, complete smooth animation system, and full Citizen workflow (Dashboard, Interactive Location Map, 3-5 Photo Reporting, Resolution Verification, FAQ Help, and Profile) are 100% complete, verified, and operational:
+The core project architecture, database schema, remote Supabase infrastructure, multi-role authentication, complete smooth animation system, full Citizen workflow, Server-Side Gemini Multimodal Analysis Engine (Phase 10), Smart Department Routing Engine (Phase 11), and Citizen Complaint Details, Status Timeline & Public Tracking (Phase 12) are 100% complete, verified, and operational:
 1. **Database & Infrastructure**: Connected to live Supabase project `Complaint2Resolution`. All 18 relational tables, 3 custom ENUMs, PostgreSQL triggers (including concurrent `CR-YYYY-XXXXXX` ID generation and audit logging), storage buckets (`complaint-images`), and category taxonomy rows are active.
 2. **Authentication & Authorization**: Multi-role auth is active for Citizens (`/login`, `/signup`), Officers (`/officer/login`), and Admins (`/admin/login`). Role verification is enforced server-side via `src/middleware.ts` and `src/lib/auth.ts`.
-3. **Citizen Experience & UI**:
-   - **Dashboard**: Features dark green theme, hero banner with "Cleaner, Greener, Happier India" handwriting slogan, live location pill, camera reporting CTA, metric cards, active action-required alerts, search, and status filters.
-   - **Interactive Location Selection**: Features full-screen responsive Leaflet/OpenStreetMap modal, 2-column layout (map canvas on left, search, address, coordinates & "Use This Location" action button on right). Mouse wheel page scroll lock is fixed via `scrollWheelZoom: false` by default.
-   - **3-Step Complaint Submission**: Photo evidence upload (3-5 required slots), geotagged map location confirmation, and detailed issue description validation.
-   - **FAQ & Support**: Category-based collapsible accordion UI without chatbots (clicking a question expands only its answer).
-   - **Profile Section**: Redesigned to match design specs with 2-column profile info + location active card, inline name editing, account settings with dedicated red Logout button, and footer.
-4. **Officer & Admin Portals**: Private routes (`/officer/*`, `/admin/*`) with isolated department management (`/admin/departments`), officer provisioning (`/admin/officers`), and command shells.
-5. **Animation System**: Standardized `framer-motion` layout transitions (`PageTransition`, `ScrollReveal`, `AnimatedButton`, `ModalWrapper`, `StaggerContainer`) across all portals.
+3. **Public Complaint Tracking**: Built public lookup API `/api/complaints/track/[permanentId]` and public tracking page `/track` allowing any user to search ticket progress by `CR-YYYY-XXXXXX` without exposing private personal information.
+4. **Complaint Detail View & Timeline**: Refactored `ComplaintDetailView.tsx` into clearly separated "Citizen Provided Information" and "AI Generated Intelligence" sections, displaying photographic evidence, interactive SLA timer bar with color status, and chronological audit timeline node history.
+5. **Smart Department Routing Service**: Built `src/lib/services/routingService.ts` to process AI analysis results. High-confidence complaints ($\ge 0.70$) without human review flags are auto-routed to matching municipal departments with status `'RECEIVED'`. Low confidence ($<0.70$) or flagged complaints route to the Human Review queue with status `'SUBMITTED'`. Calculates SLA deadlines based on priority (6h Critical, 24h High, 48h Medium, 72h Low) and logs transition events in `complaint_status_history`.
+6. **Multimodal AI Analysis Engine**: Server-side Route Handler at `/api/complaints/analyze` powered by Google Gemini API via `getGeminiClient()`. Analyzes uploaded image evidence + citizen text description, returning structured JSON validated by Zod (`AiAnalysisResultSchema`). Includes 3-attempt exponential backoff retry loop and graceful fallback (`AI_PROCESSING_FAILED`).
+7. **Officer & Admin Portals**: Private routes (`/officer/*`, `/admin/*`) with isolated department management (`/admin/departments`), officer provisioning (`/admin/officers`), and command shells.
+8. **Animation System**: Standardized `framer-motion` layout transitions (`PageTransition`, `ScrollReveal`, `AnimatedButton`, `ModalWrapper`, `StaggerContainer`) across all portals.
 
 ---
 
 ## Core Technical Decisions & Invariants
 
-1. **Server-Side AI Secrets**: `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` must never be exposed to the browser or prefixed with `NEXT_PUBLIC_`. All AI processing occurs strictly inside Next.js Route Handlers / Server Actions.
+1. **Server-Side AI Secrets**: `GEMINI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` must never be exposed to the browser or prefixed with `NEXT_PUBLIC_`. All AI processing occurs strictly inside Next.js Route Handlers / Server Actions using `getGeminiClient()`.
 2. **Permanent Complaint ID Preservation**: Complaint ID `CR-YYYY-XXXXXX` is generated once at submission and NEVER changes. If a citizen disputes a resolution, the **SAME** complaint ID is reopened (`status = REOPENED` $\rightarrow$ `IN_PROGRESS`). Duplicate tickets must not be created.
 3. **Department Role Isolation**: Officers and Department Admins can only view/manage complaints within their assigned department (`officer_departments`). Only Central Authority (`super_admin`) has system-wide access.
 4. **Mandatory Photographic Evidence**:
@@ -50,7 +48,55 @@ The core project architecture, database schema, remote Supabase infrastructure, 
 
 ## Latest Completed Work
 
-### 2026-09-15 — Comprehensive Citizen Experience, Map Fixes, Profile Redesign & Smooth Motion System
+### 2026-10-03 — Phase 12 — Citizen Complaint Details, Status Timeline & Public Tracking
+- **Developer / Agent**: Antigravity Assistant
+- **Scope**: Detail View (`src/components/citizen/ComplaintDetailView.tsx`), Public Tracker (`src/app/track/page.tsx`), Public API (`src/app/api/complaints/track/[permanentId]/route.ts`)
+- **Work Completed**:
+  1. **Clear Information Separation**: Redesigned `ComplaintDetailView.tsx` into two distinct visual sections: "Citizen Provided Information" (photo, GPS coordinates, resident text) and "AI Generated Intelligence" (executive summary, confidence %, recommended protocol steps).
+  2. **Interactive SLA Resolution Countdown**: Rendered dynamic SLA bar with color-coded warning states (`normal`, `warning`, `critical`, `breached`).
+  3. **Chronological Visual Audit Timeline**: Rendered vertical timeline with status badges, timestamps, color-coded node indicators, and audit notes.
+  4. **Public Complaint Tracking API**: Built `/api/complaints/track/[permanentId]` returning non-sensitive public details for ticket tracking by permanent ID (`CR-YYYY-XXXXXX`).
+  5. **Public Tracking Portal Page**: Built `/track` with search bar, URL auto-fill (`?id=CR-2026-000001`), status indicators, and responsive layout.
+- **Files Modified/Created**:
+  - `src/app/api/complaints/track/[permanentId]/route.ts` (New)
+  - `src/app/track/page.tsx` (New)
+  - `src/components/citizen/ComplaintDetailView.tsx` (Enhanced)
+  - `task.md` (Updated)
+  - `WORKDONE.md` (Updated)
+- **Testing Performed**:
+  - Executed `npm run build`: compiled cleanly with 0 TypeScript / Next.js errors across all 30 route targets.
+- **Current Status**: Complete, verified, and operational.
+- **Developer / Agent**: Antigravity Assistant
+- **Scope**: Smart Routing Service (`src/lib/services/routingService.ts`) & Analysis API Route (`src/app/api/complaints/analyze/route.ts`)
+- **Work Completed**:
+  1. **Smart Routing Service Architecture**: Created `src/lib/services/routingService.ts` encapsulating confidence evaluation, department matching, SLA calculation, and complaint status transition logging.
+  2. **Confidence Threshold & Queue Decision**: High-confidence complaints ($\ge 0.70$) with a matched department auto-assign status `'RECEIVED'`. Low confidence ($< 0.70$) or `needs_human_review: true` route to status `'SUBMITTED'` for officer human review triage.
+  3. **Dynamic SLA Assignment**: Standardized priority to SLA mapping: `CRITICAL` (6h), `HIGH` (24h), `MEDIUM` (48h), `LOW` (72h), calculating `sla_start_time` and `sla_deadline` ISO timestamps.
+  4. **Status History Audit Trail**: Logs status transitions in `complaint_status_history` with full audit notes describing routing rationale and confidence percentage.
+  5. **API Route Integration**: Connected `executeSmartRouting` to `/api/complaints/analyze`, returning routing decisions to the caller.
+- **Files Modified/Created**:
+  - `src/lib/services/routingService.ts` (New)
+  - `src/app/api/complaints/analyze/route.ts` (Updated)
+  - `task.md` (Updated)
+  - `WORKDONE.md` (Updated)
+- **Testing Performed**:
+  - Executed `npm run build`: compiled cleanly with 0 TypeScript / Next.js errors across all 30 route targets.
+- **Current Status**: Complete, verified, and operational.
+- **Developer / Agent**: Antigravity Assistant
+- **Scope**: Multimodal AI Analysis Route (`src/app/api/complaints/analyze/route.ts`)
+- **Work Completed**:
+  1. **Gemini Client Integration**: Refactored analysis route to use `getGeminiClient()` from `src/lib/gemini.ts` to maintain security invariants and avoid exposing API keys client-side.
+  2. **Zod Structured Output Validation**: Created `AiAnalysisResultSchema` to validate Gemini responses into structured fields: `category_name`, `subcategory_name`, `department_code`, `priority` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), `summary`, `recommended_actions`, `suggested_sla_hours`, `confidence_score`, `needs_human_review`.
+  3. **Robust Retry & Backoff**: Built a 3-attempt retry loop with exponential delay (1s, 2s) to handle transient Gemini API rate limits or failures.
+  4. **Fallback & Human Review Routing**: Handled complete API failures gracefully by setting `ai_status: 'AI_PROCESSING_FAILED'`, `confidence_score: 0.50`, and assigning status `'SUBMITTED'` to force officer human review.
+  5. **Database Persistence**: Persisted full analysis output into `complaint_ai_analysis` table and updated `complaints` record with routed department, SLA deadline, AI status, and initial complaint status (`RECEIVED` vs `SUBMITTED`).
+- **Files Modified/Created**:
+  - `src/app/api/complaints/analyze/route.ts` (Refactored)
+  - `task.md` (Updated)
+  - `WORKDONE.md` (Updated)
+- **Testing Performed**:
+  - Executed `npm run build`: compiled cleanly with 0 TypeScript / Next.js errors across all 30 route targets.
+- **Current Status**: Complete, verified, and operational.
 - **Developer / Agent**: Antigravity Assistant
 - **Scope**: Site-wide Animation System & Full Citizen Workflow (`src/components/ui/motion.tsx`, `CitizenDashboardClient.tsx`, `InteractiveLocationMap.tsx`, `LocationUpdateModal.tsx`, `CitizenProfileClient.tsx`, `citizen/layout.tsx`, `officer/(portal)/layout.tsx`, `AdminShell.tsx`)
 - **Work Completed**:

@@ -8,7 +8,6 @@ import {
   Settings as WrenchIcon,
   CheckCircle2,
   AlertTriangle,
-  TrendingUp,
   MapPin,
   X,
   ChevronRight,
@@ -22,16 +21,20 @@ import {
   Upload,
 } from 'lucide-react'
 import { FadeIn, StaggerContainer, StaggerItem, AnimatedNumber } from '@/components/ui/motion'
+import { STATUS_LABELS, PRIORITY_LABELS, getSlaStatus, ComplaintStatus } from '@/lib/types'
 
-interface ComplaintItem {
+export interface ComplaintItem {
   id: string
   permanent_id: string
   category: string
   description: string
   address: string
+  latitude?: number
+  longitude?: number
   priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
   status: string
   created_at: string
+  sla_start_time?: string | null
   sla_deadline?: string | null
   assigned_on?: string
 }
@@ -42,106 +45,78 @@ interface OfficerDashboardClientProps {
   departmentName?: string
 }
 
-const DEFAULT_RECENT_COMPLAINTS: ComplaintItem[] = [
-  {
-    id: 'c1',
-    permanent_id: 'CR-2025-1042',
-    category: 'Water Leakage',
-    description: 'Continuous water leakage from underground pipeline near the public road. Causing water wastage and traffic issues.',
-    address: 'MG Road, Nashik',
-    priority: 'HIGH',
-    status: 'IN_PROGRESS',
-    created_at: '2025-09-12T10:30:00Z',
-    assigned_on: '12 Sep 2025',
-    sla_deadline: '18h remaining',
-  },
-  {
-    id: 'c2',
-    permanent_id: 'CR-2025-1048',
-    category: 'Pipeline Damage',
-    description: 'Main pipeline joint leaking heavily onto sidewalk near shop entrance.',
-    address: 'Shastri Nagar',
-    priority: 'MEDIUM',
-    status: 'IN_PROGRESS',
-    created_at: '2025-09-11T14:20:00Z',
-    assigned_on: '11 Sep 2025',
-    sla_deadline: '1d remaining',
-  },
-  {
-    id: 'c3',
-    permanent_id: 'CR-2025-1051',
-    category: 'Low Water Pressure',
-    description: 'Low water pressure reported across sector 4 residential area for 3 consecutive days.',
-    address: 'Civil Lines',
-    priority: 'MEDIUM',
-    status: 'RECEIVED',
-    created_at: '2025-09-11T09:15:00Z',
-    assigned_on: '11 Sep 2025',
-    sla_deadline: '1d remaining',
-  },
-  {
-    id: 'c4',
-    permanent_id: 'CR-2025-1068',
-    category: 'Drainage Overflow',
-    description: 'Stormwater drain blocked by debris causing minor waterlogging.',
-    address: 'Indira Nagar',
-    priority: 'LOW',
-    status: 'IN_PROGRESS',
-    created_at: '2025-09-10T16:45:00Z',
-    assigned_on: '10 Sep 2025',
-    sla_deadline: '2d remaining',
-  },
-  {
-    id: 'c5',
-    permanent_id: 'CR-2025-1071',
-    category: 'Pipeline Maintenance',
-    description: 'Scheduled valve inspection and filter replacement for sector B pump station.',
-    address: 'Laxmi Nagar',
-    priority: 'LOW',
-    status: 'RECEIVED',
-    created_at: '2025-09-10T11:00:00Z',
-    assigned_on: '10 Sep 2025',
-    sla_deadline: '2d remaining',
-  },
-]
-
 export default function OfficerDashboardClient({
-  complaints,
-  officerName = 'Rajesh Kumar',
-  departmentName = 'Water Management',
+  complaints = [],
+  officerName = 'Municipal Officer',
+  departmentName = 'Municipal Division',
 }: OfficerDashboardClientProps) {
-  const activeComplaints = complaints && complaints.length > 0 ? complaints : DEFAULT_RECENT_COMPLAINTS
+  const activeComplaints = complaints
   const [selectedComplaint, setSelectedComplaint] = useState<ComplaintItem | null>(null)
   const [activeTab, setActiveTab] = useState<'Overview' | 'Updates' | 'Evidence' | 'Location'>('Overview')
   const [workNotes, setWorkNotes] = useState('')
   const [isSubmittingNotes, setIsSubmittingNotes] = useState(false)
 
-  // Donut SVG Math for SLA Overview
+  // Real Dynamic Metrics derived from Supabase Database
+  const assignedCount = activeComplaints.length
+  const pendingCount = activeComplaints.filter((c) => ['SUBMITTED', 'RECEIVED'].includes(c.status)).length
+  const inProgressCount = activeComplaints.filter((c) => ['IN_PROGRESS', 'ASSIGNED', 'REOPENED'].includes(c.status)).length
+  const resolvedCount = activeComplaints.filter((c) => ['RESOLVED', 'CLOSED', 'RESOLUTION_SUBMITTED', 'CITIZEN_VERIFICATION'].includes(c.status)).length
+
+  // Dynamic Donut SVG Math for SLA Overview
+  const slaStats = useMemo(() => {
+    let onTrack = 0
+    let atRisk = 0
+    let breached = 0
+    let resolved = 0
+
+    activeComplaints.forEach((c) => {
+      if (['RESOLVED', 'CLOSED'].includes(c.status)) {
+        resolved++
+      } else if (c.sla_deadline) {
+        const { label } = getSlaStatus(c.sla_deadline, c.sla_start_time ?? null)
+        if (label === 'breached') breached++
+        else if (label === 'warning' || label === 'critical') atRisk++
+        else onTrack++
+      } else {
+        onTrack++
+      }
+    })
+
+    return { onTrack, atRisk, breached, resolved, total: activeComplaints.length }
+  }, [activeComplaints])
+
   const slaDonutSlices = [
-    { key: 'on_track', label: 'On Track', count: 15, color: '#10b981' },
-    { key: 'at_risk', label: 'At Risk', count: 4, color: '#f59e0b' },
-    { key: 'breached', label: 'Breached', count: 2, color: '#ef4444' },
-    { key: 'resolved', label: 'Resolved', count: 3, color: '#06b6d4' },
+    { key: 'on_track', label: 'On Track', count: slaStats.onTrack, color: '#10b981' },
+    { key: 'at_risk', label: 'At Risk', count: slaStats.atRisk, color: '#f59e0b' },
+    { key: 'breached', label: 'Breached', count: slaStats.breached, color: '#ef4444' },
+    { key: 'resolved', label: 'Resolved', count: slaStats.resolved, color: '#06b6d4' },
   ]
-  const slaTotal = 24
+
+  const slaTotal = slaStats.total
   const radius = 60
   const circumference = 2 * Math.PI * radius
   let accumOffset = 0
   const slicesWithDash = slaDonutSlices.map((s) => {
-    const dash = (s.count / slaTotal) * circumference
+    const dash = slaTotal > 0 ? (s.count / slaTotal) * circumference : 0
     const offset = -accumOffset
     accumOffset += dash
     return { ...s, dashArray: `${dash} ${circumference - dash}`, dashOffset: offset }
   })
 
-  // Open complaint drawer & trigger automatic IN_PROGRESS state transition logic
+  // Open complaint drawer
   const handleOpenComplaint = (c: ComplaintItem) => {
     setSelectedComplaint(c)
-    // Automatic transition behavior: If complaint is received/assigned, note automatic start
     if (c.status === 'RECEIVED' || c.status === 'ASSIGNED') {
       c.status = 'IN_PROGRESS'
     }
   }
+
+  const todayStr = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
 
   return (
     <div className="max-w-[1450px] mx-auto flex gap-6 relative">
@@ -155,27 +130,22 @@ export default function OfficerDashboardClient({
                 Good Morning, {officerName.split(' ')[0]} ☀️
               </h1>
               <p className="text-slate-400 text-xs sm:text-sm mt-0.5">
-                Here are your assigned complaints and key updates for today.
+                Division: <span className="text-emerald-400 font-semibold">{departmentName}</span> · Active real-time complaints queue.
               </p>
             </div>
 
-            {/* Date Card with warm golden waves matching screenshot */}
+            {/* Date Card */}
             <div className="px-5 py-3 rounded-2xl bg-gradient-to-r from-[#141e17] via-[#1a2b1f] to-[#122218] border border-amber-500/30 flex items-center gap-4 relative overflow-hidden shadow-lg">
-              <div className="absolute right-0 top-0 opacity-20 pointer-events-none text-amber-400">
-                <svg width="100" height="40" viewBox="0 0 100 40">
-                  <path d="M0 20 Q 25 5, 50 20 T 100 20" stroke="currentColor" fill="none" strokeWidth="2" />
-                </svg>
-              </div>
               <Calendar size={18} className="text-amber-400 shrink-0" />
               <div>
-                <p className="text-xs font-bold text-slate-100">Friday, 12 Sep 2025</p>
-                <p className="text-[10px] text-amber-300/80 font-medium">Let&apos;s keep the city flowing.</p>
+                <p className="text-xs font-bold text-slate-100">{todayStr}</p>
+                <p className="text-[10px] text-amber-300/80 font-medium">Active Database Synchronization</p>
               </div>
             </div>
           </div>
         </FadeIn>
 
-        {/* 2. Top 4 Metric Cards Row */}
+        {/* 2. Top 4 Metric Cards Row (Calculated from REAL Complaints) */}
         <StaggerContainer staggerChildren={0.06} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Assigned */}
           <StaggerItem>
@@ -187,15 +157,14 @@ export default function OfficerDashboardClient({
                 <div>
                   <p className="text-xs text-slate-400 font-medium">Assigned</p>
                   <p className="text-2xl font-extrabold text-white mt-0.5" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                    <AnimatedNumber value={24} duration={0.8} />
+                    <AnimatedNumber value={assignedCount} duration={0.8} />
                   </p>
                 </div>
               </div>
               <div className="text-right">
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                  ↑ 12%
+                  Live Queue
                 </span>
-                <p className="text-[10px] text-slate-500 mt-1">vs last week</p>
               </div>
             </div>
           </StaggerItem>
@@ -208,17 +177,16 @@ export default function OfficerDashboardClient({
                   <Clock size={22} />
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400 font-medium">Pending</p>
+                  <p className="text-xs text-slate-400 font-medium">Pending Review</p>
                   <p className="text-2xl font-extrabold text-white mt-0.5" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                    <AnimatedNumber value={8} duration={0.8} />
+                    <AnimatedNumber value={pendingCount} duration={0.8} />
                   </p>
                 </div>
               </div>
               <div className="text-right">
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                  ↓ 20%
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                  Unprocessed
                 </span>
-                <p className="text-[10px] text-slate-500 mt-1">vs last week</p>
               </div>
             </div>
           </StaggerItem>
@@ -233,15 +201,14 @@ export default function OfficerDashboardClient({
                 <div>
                   <p className="text-xs text-slate-400 font-medium">In Progress</p>
                   <p className="text-2xl font-extrabold text-white mt-0.5" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                    <AnimatedNumber value={10} duration={0.9} />
+                    <AnimatedNumber value={inProgressCount} duration={0.9} />
                   </p>
                 </div>
               </div>
               <div className="text-right">
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                  ↑ 25%
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
+                  Active Work
                 </span>
-                <p className="text-[10px] text-slate-500 mt-1">vs last week</p>
               </div>
             </div>
           </StaggerItem>
@@ -256,15 +223,14 @@ export default function OfficerDashboardClient({
                 <div>
                   <p className="text-xs text-slate-400 font-medium">Resolved</p>
                   <p className="text-2xl font-extrabold text-white mt-0.5" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                    <AnimatedNumber value={3} duration={1} />
+                    <AnimatedNumber value={resolvedCount} duration={1} />
                   </p>
                 </div>
               </div>
               <div className="text-right">
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                  ↑ 50%
+                  Verified
                 </span>
-                <p className="text-[10px] text-slate-500 mt-1">vs last week</p>
               </div>
             </div>
           </StaggerItem>
@@ -272,7 +238,7 @@ export default function OfficerDashboardClient({
 
         {/* 3. Middle Section: Complaint Locations Map & SLA Overview Donut */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left 7 Cols: GIS Location Map Widget matching screenshot */}
+          {/* Left 7 Cols: GIS Location Map Widget */}
           <FadeIn direction="up" delay={0.1} className="lg:col-span-7">
             <div className="glass-card p-5 sm:p-6 rounded-2xl border border-[#16271e] bg-[#09120d]/90 shadow-xl flex flex-col h-full relative overflow-hidden">
               <div className="flex items-center justify-between mb-3">
@@ -280,14 +246,13 @@ export default function OfficerDashboardClient({
                   <MapPin size={18} className="text-emerald-400" />
                   Complaint Locations
                 </h3>
-                <span className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer flex items-center gap-1">
-                  View Map →
-                </span>
+                <Link href="/officer/complaints" className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1">
+                  View Complaints →
+                </Link>
               </div>
 
-              {/* Interactive GIS Map Canvas Container matching screenshot */}
+              {/* GIS Map Canvas */}
               <div className="relative flex-1 min-h-[200px] rounded-xl bg-[#0b1410] border border-slate-800/80 overflow-hidden flex items-center justify-center">
-                {/* SVG Dark Blueprint Grid Map */}
                 <svg className="w-full h-full absolute inset-0 opacity-40" viewBox="0 0 500 200">
                   <path d="M 50 0 L 50 200 M 150 0 L 150 200 M 250 0 L 250 200 M 350 0 L 350 200 M 450 0 L 450 200" stroke="#1e293b" strokeWidth="1" />
                   <path d="M 0 40 L 500 40 M 0 100 L 500 100 M 0 160 L 500 160" stroke="#1e293b" strokeWidth="1" />
@@ -295,418 +260,213 @@ export default function OfficerDashboardClient({
                   <path d="M 20 180 C 120 120, 280 180, 480 30" fill="none" stroke="#22c55e" strokeWidth="2" strokeDasharray="6 4" />
                 </svg>
 
-                {/* Map Pins */}
-                <div className="absolute left-[30%] top-[40%] flex flex-col items-center group cursor-pointer">
-                  <div className="px-2.5 py-1 rounded-lg bg-[#0b1424]/95 border border-blue-500/40 text-[10px] text-white shadow-xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none mb-1 whitespace-nowrap">
-                    <p className="font-bold text-blue-400">CR-2025-1042</p>
-                    <p className="text-slate-300">Water Leakage · MG Road</p>
+                {activeComplaints.length === 0 ? (
+                  <div className="text-center p-6 text-slate-400 z-10">
+                    <MapPin size={24} className="mx-auto text-slate-600 mb-2" />
+                    <p className="text-xs font-semibold">No active complaint coordinates registered</p>
+                    <p className="text-[10px] text-slate-500">GIS map will update as citizens submit complaints.</p>
                   </div>
-                  <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-[0_0_12px_#3b82f6] animate-pulse" />
-                </div>
+                ) : (
+                  activeComplaints.slice(0, 5).map((c, i) => {
+                    const leftPct = 20 + ((i * 25) % 70)
+                    const topPct = 25 + ((i * 30) % 55)
+                    return (
+                      <div
+                        key={c.id}
+                        style={{ left: `${leftPct}%`, top: `${topPct}%` }}
+                        onClick={() => handleOpenComplaint(c)}
+                        className="absolute flex flex-col items-center group cursor-pointer"
+                      >
+                        <div className="px-2.5 py-1 rounded-lg bg-[#0b1424]/95 border border-emerald-500/40 text-[10px] text-white shadow-xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none mb-1 whitespace-nowrap z-20">
+                          <p className="font-bold text-emerald-400">{c.permanent_id}</p>
+                          <p className="text-slate-300">{c.category} · {c.address}</p>
+                        </div>
+                        <div className="w-4 h-4 rounded-full bg-emerald-500 border-2 border-white shadow-[0_0_12px_#10b981] animate-pulse" />
+                      </div>
+                    )
+                  })
+                )}
 
-                <div className="absolute left-[55%] top-[25%] flex flex-col items-center group cursor-pointer">
-                  <div className="w-3.5 h-3.5 rounded-full bg-amber-500 border-2 border-white shadow-[0_0_10px_#f59e0b]" />
-                </div>
-
-                <div className="absolute left-[70%] top-[65%] flex flex-col items-center group cursor-pointer">
-                  <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white shadow-[0_0_10px_#10b981]" />
-                </div>
-
-                <div className="absolute left-[20%] top-[70%] flex flex-col items-center group cursor-pointer">
-                  <div className="w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white shadow-[0_0_10px_#ef4444]" />
-                </div>
-
-                {/* Legend Overlay Box on Map matching screenshot */}
+                {/* Legend Overlay */}
                 <div className="absolute right-3 top-3 bg-[#070f0b]/90 border border-emerald-900/40 p-2.5 rounded-xl text-[11px] flex flex-col gap-1.5 shadow-lg backdrop-blur-md">
                   <div className="flex items-center justify-between gap-4">
                     <span className="flex items-center gap-1.5 text-slate-300">
                       <span className="w-2 h-2 rounded-full bg-amber-500" /> Pending
                     </span>
-                    <span className="font-mono font-bold text-white">8</span>
+                    <span className="font-mono font-bold text-white">{pendingCount}</span>
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <span className="flex items-center gap-1.5 text-slate-300">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" /> In Progress
+                      <span className="w-2 h-2 rounded-full bg-purple-500" /> In Progress
                     </span>
-                    <span className="font-mono font-bold text-white">10</span>
+                    <span className="font-mono font-bold text-white">{inProgressCount}</span>
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <span className="flex items-center gap-1.5 text-slate-300">
-                      <span className="w-2 h-2 rounded-full bg-rose-500" /> SLA At Risk
+                      <span className="w-2 h-2 rounded-full bg-rose-500" /> At Risk / Breached
                     </span>
-                    <span className="font-mono font-bold text-white">4</span>
+                    <span className="font-mono font-bold text-white">{slaStats.atRisk + slaStats.breached}</span>
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <span className="flex items-center gap-1.5 text-slate-300">
-                      <span className="w-2 h-2 rounded-full bg-cyan-500" /> Resolved
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" /> Resolved
                     </span>
-                    <span className="font-mono font-bold text-white">3</span>
+                    <span className="font-mono font-bold text-white">{resolvedCount}</span>
                   </div>
                 </div>
               </div>
             </div>
           </FadeIn>
 
-          {/* Right 5 Cols: SLA Overview Donut Chart matching screenshot */}
+          {/* Right 5 Cols: SLA Overview Donut Chart */}
           <FadeIn direction="up" delay={0.15} className="lg:col-span-5">
             <div className="glass-card p-5 sm:p-6 rounded-2xl border border-[#16271e] bg-[#09120d]/90 shadow-xl flex flex-col h-full">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base sm:text-lg font-bold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                  SLA Overview
-                </h3>
-                <span className="text-xs text-emerald-400 font-semibold cursor-pointer">
-                  View Details →
-                </span>
-              </div>
+              <h3 className="text-base sm:text-lg font-bold text-white mb-4" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                SLA Compliance Breakdown
+              </h3>
 
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-5 my-auto">
-                {/* Donut SVG Ring */}
-                <div className="relative w-40 h-40 flex items-center justify-center shrink-0">
-                  <svg viewBox="0 0 160 160" className="w-full h-full -rotate-90 select-none">
-                    {slicesWithDash.map((s) => (
-                      <circle
-                        key={s.key}
-                        cx="80"
-                        cy="80"
-                        r={radius}
-                        fill="transparent"
-                        stroke={s.color}
-                        strokeWidth="16"
-                        strokeDasharray={s.dashArray}
-                        strokeDashoffset={s.dashOffset}
-                        className="transition-all duration-300 hover:stroke-width-[20] cursor-pointer"
-                        style={{ filter: `drop-shadow(0 0 6px ${s.color})` }}
-                      />
-                    ))}
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-                    <span className="text-xl font-extrabold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                      24
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-medium">Total</span>
-                  </div>
-                </div>
-
-                {/* Donut Legend */}
-                <div className="flex flex-col gap-2 w-full sm:w-auto text-xs flex-1">
-                  {slaDonutSlices.map((s) => (
-                    <div key={s.key} className="flex items-center justify-between p-1 rounded-lg hover:bg-slate-800/40">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                        <span className="text-slate-300 font-medium">{s.label}</span>
-                      </div>
-                      <span className="font-mono font-bold text-white">{s.count}</span>
-                    </div>
+              <div className="flex items-center justify-center relative my-2">
+                <svg width="180" height="180" viewBox="0 0 180 180" className="transform -rotate-90">
+                  <circle cx="90" cy="90" r={radius} stroke="#132018" strokeWidth="16" fill="transparent" />
+                  {slaTotal > 0 && slicesWithDash.map((slice) => (
+                    <circle
+                      key={slice.key}
+                      cx="90"
+                      cy="90"
+                      r={radius}
+                      stroke={slice.color}
+                      strokeWidth="16"
+                      strokeDasharray={slice.dashArray}
+                      strokeDashoffset={slice.dashOffset}
+                      fill="transparent"
+                      className="transition-all duration-500"
+                    />
                   ))}
+                </svg>
+
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <span className="text-3xl font-extrabold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                    {slaTotal}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                    Total Complaints
+                  </span>
                 </div>
               </div>
-            </div>
-          </FadeIn>
-        </div>
 
-        {/* 4. Bottom Row: Recent Assignments Table & Performance / Messages */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left 7 Cols: Recent Assignments Table */}
-          <FadeIn direction="up" delay={0.2} className="lg:col-span-7">
-            <div className="glass-card p-5 sm:p-6 rounded-2xl border border-[#16271e] bg-[#09120d]/90 shadow-xl flex flex-col h-full">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                  <FileText size={18} className="text-emerald-400" />
-                  Recent Assignments
-                </h3>
-                <span className="text-xs text-emerald-400 font-semibold cursor-pointer">
-                  View All →
-                </span>
-              </div>
-
-              {/* Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead>
-                    <tr className="border-b border-slate-800/80 text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
-                      <th className="pb-3 pl-1">ID</th>
-                      <th className="pb-3">Category</th>
-                      <th className="pb-3">Location</th>
-                      <th className="pb-3">Priority</th>
-                      <th className="pb-3">Status</th>
-                      <th className="pb-3">SLA</th>
-                      <th className="pb-3">Assigned On</th>
-                      <th className="pb-3 text-right pr-2">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    {activeComplaints.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-800/30 transition-colors group">
-                        <td className="py-3 pl-1 font-mono font-bold text-emerald-400">
-                          {c.permanent_id}
-                        </td>
-                        <td className="py-3 text-slate-200 font-medium">{c.category}</td>
-                        <td className="py-3 text-slate-400">{c.address}</td>
-                        <td className="py-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              c.priority === 'HIGH' || c.priority === 'CRITICAL'
-                                ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                                : c.priority === 'MEDIUM'
-                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                            }`}
-                          >
-                            {c.priority}
-                          </span>
-                        </td>
-                        <td className="py-3">
-                          <span
-                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                              c.status === 'IN_PROGRESS'
-                                ? 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
-                                : 'bg-amber-600/30 text-amber-300 border border-amber-500/40'
-                            }`}
-                          >
-                            {c.status === 'IN_PROGRESS' ? 'In Progress' : 'Pending'}
-                          </span>
-                        </td>
-                        <td className="py-3 font-mono text-slate-300">{c.sla_deadline || '1d'}</td>
-                        <td className="py-3 text-slate-400">{c.assigned_on || '12 Sep 2025'}</td>
-                        <td className="py-3 text-right pr-2">
-                          <button
-                            onClick={() => handleOpenComplaint(c)}
-                            className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white font-semibold text-xs transition-colors cursor-pointer"
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </FadeIn>
-
-          {/* Right 5 Cols: My Performance & Department Message */}
-          <FadeIn direction="up" delay={0.25} className="lg:col-span-5 flex flex-col gap-5">
-            {/* My Performance Box */}
-            <div className="glass-card p-5 sm:p-6 rounded-2xl border border-[#16271e] bg-[#09120d]/90 shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-bold text-white flex items-center gap-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                  <TrendingUp size={18} className="text-emerald-400" />
-                  My Performance <span className="text-xs font-normal text-slate-400">(This Month)</span>
-                </h3>
-                <span className="text-xs text-emerald-400 font-semibold cursor-pointer">
-                  View Reports →
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3.5 rounded-xl bg-[#0b1410] border border-slate-800/80">
-                  <p className="text-2xl font-extrabold text-emerald-400 font-mono">92%</p>
-                  <p className="text-xs text-slate-400 mt-0.5">SLA Compliance</p>
-                  <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2">
-                    <div className="bg-emerald-500 h-full rounded-full w-[92%]" />
+              {/* Legend List */}
+              <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-800/80">
+                {slaDonutSlices.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between p-2 rounded-lg bg-slate-900/40 border border-slate-800/50">
+                    <span className="flex items-center gap-1.5 text-xs text-slate-300">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+                      {s.label}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-white">{s.count}</span>
                   </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#0b1410] border border-slate-800/80">
-                  <p className="text-2xl font-extrabold text-white font-mono">18</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Resolved</p>
-                  <span className="text-[10px] text-emerald-400 font-bold block mt-1">↑ 28%</span>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#0b1410] border border-slate-800/80">
-                  <p className="text-2xl font-extrabold text-white font-mono">2.4 days</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Avg. Resolution Time</p>
-                  <span className="text-[10px] text-emerald-400 font-bold block mt-1">↓ 15%</span>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#0b1410] border border-slate-800/80">
-                  <p className="text-2xl font-extrabold text-white font-mono">1</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Reopened</p>
-                  <span className="text-[10px] text-emerald-400 font-bold block mt-1">↓ 50%</span>
-                </div>
+                ))}
               </div>
-            </div>
-
-            {/* Department Message Card matching screenshot */}
-            <div className="p-5 rounded-2xl bg-gradient-to-r from-[#0d1f15] to-[#12281c] border border-emerald-900/40 text-slate-200 relative overflow-hidden flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
-                <Sparkles size={16} />
-                <span>Department Message</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Keep up the great work! Your timely resolutions make a real difference in the community.
-              </p>
             </div>
           </FadeIn>
         </div>
+
+        {/* 4. Active Complaints List Table */}
+        <FadeIn direction="up" delay={0.2}>
+          <div className="glass-card p-5 sm:p-6 rounded-2xl border border-[#16271e] bg-[#09120d]/90 shadow-xl flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  Assigned Complaints Queue
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Select any ticket to view details and update repair progress.
+                </p>
+              </div>
+            </div>
+
+            {activeComplaints.length === 0 ? (
+              <div className="p-10 text-center text-slate-400 border border-slate-800/80 rounded-xl bg-slate-950/40">
+                <FileText size={32} className="mx-auto text-slate-600 mb-2" />
+                <p className="text-sm font-semibold">No complaints currently registered</p>
+                <p className="text-xs text-slate-500 mt-0.5">When a citizen submits a complaint, it will appear here automatically.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {activeComplaints.map((c) => (
+                  <div
+                    key={c.id}
+                    onClick={() => handleOpenComplaint(c)}
+                    className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/40 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-200 group"
+                  >
+                    <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                          {c.permanent_id}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          {STATUS_LABELS[c.status as ComplaintStatus] ?? c.status}
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          {PRIORITY_LABELS[c.priority] ?? c.priority}
+                        </span>
+                      </div>
+                      <p className="text-xs sm:text-sm font-semibold text-slate-200 group-hover:text-white transition-colors truncate">
+                        {c.description}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {c.category} · {c.address}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <Link
+                        href={`/officer/complaints/${c.id}`}
+                        className="px-3 py-1.5 text-xs font-semibold text-emerald-400 bg-emerald-950/50 border border-emerald-800/50 rounded-lg hover:bg-emerald-900/60 transition-colors flex items-center gap-1"
+                      >
+                        Open Workspace <ChevronRight size={14} />
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </FadeIn>
       </div>
 
-      {/* 5. Complete Interactive Slide-Over Complaint Detail Drawer matching right side of screenshot */}
+      {/* Complaint Drawer */}
       {selectedComplaint && (
-        <div className="fixed inset-y-0 right-0 w-full sm:w-[450px] bg-[#070f0b] border-l border-[#15271d] shadow-[0_0_50px_rgba(0,0,0,0.9)] z-50 flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
-          {/* Drawer Header */}
-          <div className="p-5 border-b border-[#15271d] bg-[#09140f] flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-amber-600/90 text-white font-bold text-xs flex items-center justify-center">
-                RK
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white">Rajesh Kumar</p>
-                <p className="text-[10px] text-slate-400">Officer - Water Management</p>
-              </div>
+        <div className="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-[#09120d] border-l border-slate-800 z-50 p-6 flex flex-col gap-5 overflow-y-auto shadow-2xl">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <code className="text-lg font-mono font-bold text-emerald-400">{selectedComplaint.permanent_id}</code>
+              <p className="text-xs text-slate-400">{selectedComplaint.category}</p>
             </div>
             <button
               onClick={() => setSelectedComplaint(null)}
-              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
             >
               <X size={18} />
             </button>
           </div>
 
-          {/* Drawer Title & Badges */}
-          <div className="p-5 border-b border-[#15271d] flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-base font-bold text-emerald-400">{selectedComplaint.permanent_id}</span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                In Progress
-              </span>
-            </div>
-            <h2 className="text-base font-bold text-white">{selectedComplaint.category}</h2>
-            <div className="flex items-center gap-3 text-xs text-slate-400">
-              <span className="flex items-center gap-1"><MapPin size={12} className="text-emerald-400" /> {selectedComplaint.address}</span>
-              <span>12 Sep 2025, 10:30 AM</span>
+          <div className="flex flex-col gap-4 text-xs">
+            <div className="flex flex-col gap-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Resident Description</span>
+              <p className="text-slate-200 leading-relaxed">{selectedComplaint.description}</p>
             </div>
 
-            {/* Nav Tabs */}
-            <div className="flex gap-2 border-t border-slate-800/80 pt-3 mt-2 text-xs font-medium">
-              {(['Overview', 'Updates', 'Evidence', 'Location'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-3 py-1 rounded-lg transition-colors cursor-pointer ${
-                    activeTab === tab ? 'bg-emerald-600/30 text-emerald-300 font-bold border border-emerald-500/30' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Drawer Body Area */}
-          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
-            {/* Overview Content */}
-            <div className="flex flex-col gap-2">
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Complaint Details</h4>
-              <p className="text-xs text-slate-300 leading-relaxed bg-[#0b1611] p-3 rounded-xl border border-slate-800/80">
-                {selectedComplaint.description}
-              </p>
+            <div className="flex flex-col gap-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">Location Address</span>
+              <p className="text-slate-200">{selectedComplaint.address}</p>
             </div>
 
-            {/* Evidence Photos */}
-            <div>
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Original Evidence</h4>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="h-24 rounded-xl bg-slate-800 border border-slate-700/80 overflow-hidden relative flex items-center justify-center text-slate-500">
-                  <ImageIcon size={24} />
-                </div>
-                <div className="h-24 rounded-xl bg-slate-800 border border-slate-700/80 overflow-hidden relative flex items-center justify-center text-slate-500">
-                  <ImageIcon size={24} />
-                </div>
-              </div>
-            </div>
-
-            {/* Status Timeline matching right side of design screenshot */}
-            <div className="flex flex-col gap-3">
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Status Timeline</h4>
-
-              <div className="space-y-4 relative pl-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-800">
-                <div className="relative">
-                  <div className="absolute -left-5 top-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 flex items-center justify-center text-black">
-                    <Check size={10} strokeWidth={3} />
-                  </div>
-                  <p className="text-xs font-bold text-white">Complaint Received</p>
-                  <p className="text-[10px] text-slate-400">12 Sep 2025, 10:30 AM</p>
-                </div>
-
-                <div className="relative">
-                  <div className="absolute -left-5 top-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 flex items-center justify-center text-black">
-                    <Check size={10} strokeWidth={3} />
-                  </div>
-                  <p className="text-xs font-bold text-white">Assigned to Department</p>
-                  <p className="text-[10px] text-slate-400">12 Sep 2025, 10:32 AM</p>
-                </div>
-
-                <div className="relative">
-                  <div className="absolute -left-5 top-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 flex items-center justify-center text-black">
-                    <Check size={10} strokeWidth={3} />
-                  </div>
-                  <p className="text-xs font-bold text-white">Assigned to You</p>
-                  <p className="text-[10px] text-slate-400">12 Sep 2025, 10:35 AM</p>
-                </div>
-
-                {/* Current Active Stage Automatic Transition Note */}
-                <div className="relative bg-emerald-950/40 border border-emerald-500/40 p-2.5 rounded-xl">
-                  <div className="absolute -left-[25px] top-2.5 w-3.5 h-3.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#22c55e]" />
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-emerald-300">In Progress</p>
-                    <span className="text-[9px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">
-                      Current Stage
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 mt-1">
-                    Automatically started when you opened this complaint
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">12 Sep 2025, 10:40 AM</p>
-                </div>
-
-                <div className="relative opacity-40">
-                  <div className="absolute -left-5 top-0.5 w-3.5 h-3.5 rounded-full bg-slate-700" />
-                  <p className="text-xs font-bold text-slate-400">Resolution Submitted</p>
-                  <p className="text-[10px] text-slate-500">Pending</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Officer Work Notes & Evidence Upload Section */}
-            <div className="p-4 rounded-xl bg-[#09150e] border border-emerald-900/40 flex flex-col gap-3">
-              <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                <WrenchIcon size={14} className="text-emerald-400" /> Add Work / Action Notes
-              </h4>
-              <textarea
-                rows={3}
-                placeholder="Inspected pipeline and replaced broken section..."
-                value={workNotes}
-                onChange={(e) => setWorkNotes(e.target.value)}
-                className="w-full text-xs p-2.5 rounded-xl bg-[#050a07] border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              />
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <button className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700 flex items-center gap-1.5 cursor-pointer">
-                  <Upload size={13} /> Upload Evidence
-                </button>
-                <button
-                  onClick={() => {
-                    setIsSubmittingNotes(true)
-                    setTimeout(() => {
-                      setIsSubmittingNotes(false)
-                      alert('Resolution submitted for AI verification!')
-                    }, 800)
-                  }}
-                  className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-[0_0_15px_rgba(16,185,129,0.4)] flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Send size={13} /> Submit Resolution
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* System note at bottom matching screenshot */}
-          <div className="p-4 border-t border-[#15271d] bg-[#060c09] text-[11px] text-slate-400 flex items-start gap-2">
-            <Info size={14} className="text-amber-400 shrink-0 mt-0.5" />
-            <span>
-              Status is updated automatically based on your actions. You can add work notes, upload evidence and submit resolution when the work is completed.
-            </span>
+            <Link
+              href={`/officer/complaints/${selectedComplaint.id}`}
+              className="btn-primary text-center py-2.5 text-xs font-semibold mt-2"
+            >
+              Open Full Officer Workspace
+            </Link>
           </div>
         </div>
       )}
