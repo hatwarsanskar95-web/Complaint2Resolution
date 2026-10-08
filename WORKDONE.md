@@ -291,6 +291,15 @@
 - **Primary Files**: `src/components/citizen/AddPhotoModal.tsx`, `src/app/citizen/report/page.tsx`
 - **Status**: ✅ COMPLETED & VERIFIED (0 TypeScript errors)
 
+### Vercel Production Build & React Suspense Boundary Fix
+- **What Was Done**: Fixed Next.js production build error on `/reset-password` by correctly isolating `useSearchParams()` inside a Suspense boundary.
+- **Technical Highlights**:
+  1. **Server Page Wrapper**: Refactored `src/app/reset-password/page.tsx` into a server component wrapping client content in `<Suspense fallback={<ResetPasswordLoading />}>`.
+  2. **Client Content Isolation**: Moved client-side `useSearchParams()`, recovery session verification, and password reset form into `src/components/auth/ResetPasswordContent.tsx`.
+  3. **Loading Fallback**: Created `src/components/auth/ResetPasswordLoading.tsx` matching the Complaint2Resolution dark green design system for static generation and fallback rendering.
+- **Primary Files**: `src/app/reset-password/page.tsx`, `src/components/auth/ResetPasswordContent.tsx`, `src/components/auth/ResetPasswordLoading.tsx`
+- **Status**: ✅ COMPLETED & VERIFIED (`npm run build` exits 0 with zero errors)
+
 ---
 
 *End of Master Development Log — Complaint2Resolution (Phases 0 through 37 Complete)*
