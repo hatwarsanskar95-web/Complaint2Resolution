@@ -6,6 +6,17 @@ export async function middleware(request: NextRequest) {
     request,
   })
 
+  const pathname = request.nextUrl.pathname
+
+  // Bypass auth middleware checks for dedicated callback, verification success, and reset password pages
+  if (
+    pathname.startsWith('/auth/callback') ||
+    pathname.startsWith('/verification-success') ||
+    pathname.startsWith('/reset-password')
+  ) {
+    return supabaseResponse
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://udixuacseoloktbzuyrs.supabase.co'
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 
@@ -36,7 +47,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const pathname = request.nextUrl.pathname
   const role = (user?.user_metadata?.role || 'citizen').toLowerCase()
 
   // 1. Protect Admin routes (must be dept_admin or super_admin)

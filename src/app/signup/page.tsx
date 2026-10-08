@@ -99,7 +99,7 @@ export default function SignupPage() {
             full_name: cleanName,
             role: 'citizen',
           },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/citizen/dashboard`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/verification-success`,
         },
       })
 

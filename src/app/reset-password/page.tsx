@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Leaf,
   Lock,
@@ -13,15 +13,20 @@ import {
   ArrowLeft,
   Loader2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
+  RefreshCw
 } from 'lucide-react'
 import { toast } from '@/context/ToastContext'
 import { formatAuthError } from '@/lib/auth-errors'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
+  const [sessionValid, setSessionValid] = useState<boolean | null>(null)
+  const [checkingSession, setCheckingSession] = useState(true)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -29,6 +34,47 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+
+  useEffect(() => {
+    // 1. Check if error searchParam is present
+    const errorParam = searchParams.get('error')
+    if (errorParam === 'invalid_link' || errorParam === 'verification_failed') {
+      setSessionValid(false)
+      setCheckingSession(false)
+      return
+    }
+
+    // 2. Check Supabase session
+    async function checkSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          setSessionValid(true)
+        } else {
+          // Listen briefly for auth state change (e.g. recovery PKCE exchange)
+          const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'PASSWORD_RECOVERY' || session) {
+              setSessionValid(true)
+            }
+          })
+          
+          setTimeout(async () => {
+            const { data: { session: finalSession } } = await supabase.auth.getSession()
+            setSessionValid(!!finalSession)
+            setCheckingSession(false)
+            subscription.unsubscribe()
+          }, 800)
+          return
+        }
+      } catch {
+        setSessionValid(false)
+      } finally {
+        setCheckingSession(false)
+      }
+    }
+
+    checkSession()
+  }, [searchParams, supabase.auth])
 
   async function handleResetPassword(e: React.FormEvent) {
     e.preventDefault()
@@ -65,11 +111,8 @@ export default function ResetPasswordPage() {
       }
 
       setSuccess(true)
-      toast.success('Password Updated', 'Your password has been changed successfully. Redirecting to login...')
+      toast.success('Password Updated', 'Your password has been reset successfully.')
       setLoading(false)
-      setTimeout(() => {
-        router.push('/login')
-      }, 2000)
     } catch (err) {
       const errMsg = formatAuthError(err)
       setError(errMsg)
@@ -80,37 +123,74 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-[#050C0A] text-slate-100 flex flex-col justify-center items-center p-4 relative font-sans">
+      {/* Ambient background glow */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px]" />
+      </div>
+
       <div className="w-full max-w-md rounded-3xl bg-[#081511]/90 border border-emerald-500/30 p-7 sm:p-9 shadow-[0_0_60px_rgba(16,185,129,0.15)] backdrop-blur-2xl relative z-10">
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-6 border-b border-emerald-500/20 pb-4">
           <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
             <Leaf size={20} />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white leading-none">Complaint2Resolution</h1>
+            <h1 className="text-base font-bold text-white leading-none">Complaint2Resolution</h1>
             <p className="text-xs text-slate-400 mt-0.5">Password Recovery</p>
           </div>
         </div>
 
-        {success ? (
+        {checkingSession ? (
+          <div className="flex flex-col items-center text-center gap-3 py-8">
+            <Loader2 size={32} className="animate-spin text-emerald-400" />
+            <p className="text-xs text-slate-400">Verifying password reset link...</p>
+          </div>
+        ) : sessionValid === false ? (
+          /* Expired / Invalid Session State */
           <div className="flex flex-col items-center text-center gap-4 py-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-              <CheckCircle2 size={28} />
+            <div className="w-16 h-16 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+              <AlertCircle size={32} />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">Password Updated!</h2>
-              <p className="text-xs text-slate-300 mt-1">You can now sign in using your new password.</p>
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold text-white">Reset Link Invalid or Expired</h2>
+              <p className="text-xs text-slate-300">
+                Your password reset link is invalid or has expired. Please request a new reset link.
+              </p>
             </div>
             <Link
               href="/login"
-              className="mt-2 w-full py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2"
+              className="mt-3 w-full py-3.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
             >
-              Go to Login <ArrowRight size={14} />
+              <RefreshCw size={15} />
+              <span>Request New Reset Link</span>
+            </Link>
+          </div>
+        ) : success ? (
+          /* Password Reset Success State */
+          <div className="flex flex-col items-center text-center gap-4 py-4">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+              <CheckCircle2 size={36} />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-xl font-extrabold text-white">Password Updated</h2>
+              <p className="text-xs text-slate-300">
+                Your password has been reset successfully. You can now log in using your new credentials.
+              </p>
+            </div>
+            <Link
+              href="/login"
+              className="mt-3 w-full py-3.5 px-6 rounded-full bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-xs sm:text-sm shadow-[0_0_25px_rgba(16,185,129,0.35)] transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Continue to Login</span>
+              <ArrowRight size={16} />
             </Link>
           </div>
         ) : (
+          /* Set New Password Form */
           <>
-            <h2 className="text-xl font-bold text-white mb-1">Set New Password</h2>
-            <p className="text-xs text-slate-400 mb-6">Enter and confirm your new account password below.</p>
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-white mb-1">Reset Password</h2>
+              <p className="text-xs text-slate-400">Enter and confirm your new account password below.</p>
+            </div>
 
             {error && (
               <div className="p-3 mb-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-400 flex items-start gap-2">
@@ -121,7 +201,7 @@ export default function ResetPasswordPage() {
 
             <form onSubmit={handleResetPassword} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-200">New Password</label>
+                <label className="text-xs font-semibold text-slate-200 block">New Password</label>
                 <div className="relative flex items-center">
                   <Lock size={16} className="absolute left-3.5 text-slate-500 pointer-events-none" />
                   <input
@@ -144,7 +224,7 @@ export default function ResetPasswordPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-200">Confirm New Password</label>
+                <label className="text-xs font-semibold text-slate-200 block">Confirm New Password</label>
                 <div className="relative flex items-center">
                   <Lock size={16} className="absolute left-3.5 text-slate-500 pointer-events-none" />
                   <input
@@ -178,7 +258,7 @@ export default function ResetPasswordPage() {
                   </>
                 ) : (
                   <>
-                    <span>Update Password</span>
+                    <span>Reset Password</span>
                     <ArrowRight size={16} />
                   </>
                 )}

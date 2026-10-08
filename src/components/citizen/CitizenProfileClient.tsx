@@ -23,6 +23,7 @@ import {
   CitizenLocationData,
 } from '@/components/citizen/CitizenLocationSync'
 import LocationUpdateModal from '@/components/citizen/LocationUpdateModal'
+import ChangePasswordModal from '@/components/citizen/ChangePasswordModal'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from '@/context/ToastContext'
 import { useCitizenTheme } from '@/context/CitizenThemeContext'
@@ -44,6 +45,7 @@ export default function CitizenProfileClient({ profile, email }: Props) {
 
   const [location, setLocation] = useState<CitizenLocationData | null>(null)
   const [showLocationModal, setShowLocationModal] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [editing, setEditing] = useState(false)
   const [fullName, setFullName] = useState(profile?.full_name || 'X-gamer- 700K')
@@ -285,7 +287,10 @@ export default function CitizenProfileClient({ profile, email }: Props) {
 
           <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
             {/* Change Password Option */}
-            <div className="flex-1 rounded-2xl bg-[#061811] border border-[#1b4332] p-4 flex items-center justify-between cursor-pointer hover:border-emerald-600/60 transition-all">
+            <div
+              onClick={() => setShowPasswordModal(true)}
+              className="flex-1 rounded-2xl bg-[#061811] border border-[#1b4332] p-4 flex items-center justify-between cursor-pointer hover:border-emerald-600/60 hover:bg-[#081f16] transition-all"
+            >
               <div className="flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-400 flex items-center justify-center shrink-0">
                   <Key size={18} />
@@ -339,6 +344,13 @@ export default function CitizenProfileClient({ profile, email }: Props) {
         isOpen={showLocationModal}
         onClose={() => setShowLocationModal(false)}
         onUpdated={(loc) => setLocation(loc)}
+      />
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        userEmail={email}
       />
     </div>
   )

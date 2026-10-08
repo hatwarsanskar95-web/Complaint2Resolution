@@ -271,6 +271,26 @@
 - **Primary Files**: Codebase configuration & build output.
 - **Status**: ✅ COMPLETED
 
+### Authentication Redirect & Password Recovery Flow Fix
+- **What Was Done**: Overhauled authentication redirect handling, email verification flow, forgot password recovery, and profile password reset to enforce dedicated routes and secure session handling.
+- **Technical Highlights**:
+  1. **Email Verification Flow**: Updated `signUp` `emailRedirectTo` and `/auth/callback` handler to route verified emails to dedicated `/verification-success` page displaying `"Email Verified Successfully"` and a `"Continue to Login"` button (`/login`).
+  2. **Forgot Password & Recovery Session Flow**: Updated `resetPasswordForEmail` calls (`redirectTo: /auth/callback?next=/reset-password`). Created `/reset-password` page verifying recovery session state (`supabase.auth.getSession()` / `PASSWORD_RECOVERY` listener). Renders password reset form with strength validation and explicit expired link state (`"Your password reset link is invalid or has expired."`). Shows `"Password Updated"` success screen with `"Continue to Login"`.
+  3. **Profile Password Reset**: Updated Citizen Profile "Change Password" modal to send password reset email to registered user email, routing to the **SAME** unified `/reset-password` workflow.
+  4. **Middleware Hardening**: Updated `src/middleware.ts` to bypass automatic dashboard redirects for `/auth/callback`, `/verification-success`, and `/reset-password`.
+- **Primary Files**: `src/app/verification-success/page.tsx`, `src/app/reset-password/page.tsx`, `src/app/auth/callback/route.ts`, `src/middleware.ts`, `src/app/signup/page.tsx`, `src/components/citizen/ChangePasswordModal.tsx`, `src/components/citizen/CitizenProfileClient.tsx`
+- **Status**: ✅ COMPLETED & VERIFIED (0 TypeScript errors)
+
+### Photo Evidence Upload Enhancement — Camera + Device Selection
+- **What Was Done**: Enhanced complaint evidence upload with device upload + real-time camera capture options via an interactive `AddPhotoModal`.
+- **Technical Highlights**:
+  1. **Source Selection Modal**: Clicking any photo slot presents choice between `📷 Take a Photo` and `📁 Upload from Device`.
+  2. **Real-Time Device Camera**: Integrates `navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })` with live preview, video-to-canvas frame capture, JPEG Blob/File object creation, and `[ Retake ]` / `[ Use Photo ]` controls.
+  3. **Stream Safety & Cleanup**: Ensures all MediaStream camera tracks are immediately stopped upon capture, cancel, or modal exit.
+  4. **Slot Target Consistency**: Directs the resulting `File` object into the exact clicked slot index (Slots 1–5), updating slot preview, `Replace`, and `Remove` actions while preserving the existing 3–5 photo validation and Supabase Storage pipeline.
+- **Primary Files**: `src/components/citizen/AddPhotoModal.tsx`, `src/app/citizen/report/page.tsx`
+- **Status**: ✅ COMPLETED & VERIFIED (0 TypeScript errors)
+
 ---
 
 *End of Master Development Log — Complaint2Resolution (Phases 0 through 37 Complete)*

@@ -32,6 +32,7 @@ import {
   CitizenLocationData,
 } from '@/components/citizen/CitizenLocationSync'
 import InteractiveLocationMap from '@/components/citizen/InteractiveLocationMap'
+import AddPhotoModal from '@/components/citizen/AddPhotoModal'
 import { useCitizenTheme } from '@/context/CitizenThemeContext'
 
 interface PhotoSlot {
@@ -61,6 +62,7 @@ export default function ReportComplaintPage() {
 
   // Step 1: Photos (3 to 5 slots)
   const [slots, setSlots] = useState<PhotoSlot[]>(INITIAL_SLOTS)
+  const [activeModalSlotIndex, setActiveModalSlotIndex] = useState<number | null>(null)
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // Step 2: Location
@@ -386,7 +388,7 @@ export default function ReportComplaintPage() {
                     key={slot.id}
                     onClick={() => {
                       if (!slot.preview) {
-                        fileInputRefs.current[idx]?.click()
+                        setActiveModalSlotIndex(idx)
                       }
                     }}
                     className={`rounded-2xl border-2 transition-all relative overflow-hidden flex flex-col justify-between p-3.5 min-h-[170px] ${
@@ -429,7 +431,7 @@ export default function ReportComplaintPage() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation()
-                              fileInputRefs.current[idx]?.click()
+                              setActiveModalSlotIndex(idx)
                             }}
                             className="p-2 rounded-full bg-white text-[#0f172a] hover:bg-emerald-50 text-xs font-bold shadow-md cursor-pointer"
                             title="Replace Image"
@@ -476,7 +478,6 @@ export default function ReportComplaintPage() {
                       }}
                       type="file"
                       accept="image/*"
-                      capture="environment"
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0]
@@ -486,6 +487,22 @@ export default function ReportComplaintPage() {
                   </div>
                 ))}
               </div>
+
+              {/* AddPhotoModal for slot selection */}
+              {activeModalSlotIndex !== null && (
+                <AddPhotoModal
+                  isOpen={activeModalSlotIndex !== null}
+                  slotLabel={slots[activeModalSlotIndex].label}
+                  slotNumber={slots[activeModalSlotIndex].id}
+                  onClose={() => setActiveModalSlotIndex(null)}
+                  onSelectFileFromDevice={() => {
+                    fileInputRefs.current[activeModalSlotIndex]?.click()
+                  }}
+                  onPhotoCaptured={(capturedFile) => {
+                    handleSlotFileSelect(activeModalSlotIndex, capturedFile)
+                  }}
+                />
+              )}
 
               {/* Step 1 Footer Action */}
               <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t ${isDark ? 'border-[#18382c]' : 'border-[#f1f5f9]'}`}>
