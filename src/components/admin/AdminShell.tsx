@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PageTransition } from '@/components/ui/motion'
+import NotificationBell from '@/components/notifications/NotificationBell'
 
 interface AdminShellProps {
   children: React.ReactNode
@@ -209,6 +210,8 @@ export default function AdminShell({
 
           {/* Right section: Date & Admin User Profile */}
           <div className="flex items-center gap-5">
+            <NotificationBell />
+
             <div className="hidden lg:flex flex-col text-right">
               <span className="text-xs font-semibold text-slate-200">{formattedDate}</span>
               <span className="text-[10px] text-slate-400">Stay informed. Drive change.</span>

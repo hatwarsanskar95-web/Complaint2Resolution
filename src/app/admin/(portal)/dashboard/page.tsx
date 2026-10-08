@@ -1,44 +1,79 @@
+import { createClient } from '@/lib/supabase/server'
 import { getAdminContext } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import AdminDashboardClient from '@/components/admin/AdminDashboardClient'
+import ExecutiveDashboardClient from '@/components/admin/ExecutiveDashboardClient'
 
-export default async function AdminDashboardPage() {
-  const ctx = await getAdminContext()
-  if (!ctx) redirect('/admin/login')
+export default async function ExecutiveDashboardPage() {
+  const adminCtx = await getAdminContext()
+  if (!adminCtx) redirect('/admin/login')
 
   const supabase = await createClient()
 
-  // Fetch real complaints from database
-  const { data: complaints } = await supabase
+  const twoHoursLater = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+
+  let query = supabase
     .from('complaints')
-    .select('id, permanent_id, category, subcategory, priority, status, created_at, department_id, sla_deadline, sla_start_time')
-    .order('created_at', { ascending: false })
+    .select('id, status, priority, department_id, sla_deadline, created_at, closed_at, departments(name)')
 
-  // Fetch real departments from database
-  const { data: departments } = await supabase
-    .from('departments')
-    .select('id, name, code')
-    .order('name', { ascending: true })
+  if (adminCtx.isDeptAdmin && adminCtx.departmentId) {
+    query = query.eq('department_id', adminCtx.departmentId)
+  }
 
-  const greeting = getGreeting()
-  const displayName = ctx.profile?.full_name || ctx.email.split('@')[0]
+  const [{ data: allComplaints }, { data: depts }] = await Promise.all([
+    query,
+    supabase.from('departments').select('id, name'),
+  ])
+
+  const list = allComplaints || []
+  const totalComplaints = list.length
+  const closedCount = list.filter((c) => c.status === 'CLOSED' || c.status === 'RESOLVED').length
+  const activeTickets = list.filter((c) => c.status !== 'CLOSED' && c.status !== 'RESOLVED').length
+
+  const slaBreaches = list.filter(
+    (c) => c.sla_deadline && new Date(c.sla_deadline) < new Date() && c.status !== 'CLOSED' && c.status !== 'RESOLVED'
+  ).length
+
+  const nearSlaBreaches = list.filter(
+    (c) =>
+      c.sla_deadline &&
+      new Date(c.sla_deadline) >= new Date() &&
+      new Date(c.sla_deadline) <= new Date(twoHoursLater) &&
+      c.status !== 'CLOSED' &&
+      c.status !== 'RESOLVED'
+  )
+
+  const reopenedCount = list.filter((c) => c.status === 'REOPENED').length
+  const escalationsCount = list.filter((c) => c.status === 'HUMAN_REVIEW_REQUIRED' || c.status === 'DISPUTED').length
+
+  const resolutionRate = totalComplaints > 0 ? Math.round((closedCount / totalComplaints) * 100) : 0
+  const reopenRate = closedCount + reopenedCount > 0 ? Math.round((reopenedCount / (closedCount + reopenedCount)) * 100) : 0
+
+  const deptMap: Record<string, { id: string; name: string; count: number }> = {}
+  ;(depts || []).forEach((d) => {
+    deptMap[d.id] = { id: d.id, name: d.name, count: 0 }
+  })
+
+  list.forEach((c) => {
+    if (c.department_id && deptMap[c.department_id]) {
+      deptMap[c.department_id].count++
+    }
+  })
+
+  const departmentWorkload = Object.values(deptMap)
 
   return (
-    <AdminDashboardClient
-      greeting={greeting}
-      displayName={displayName}
-      isSuperAdmin={ctx.isSuperAdmin}
-      departmentName={ctx.department?.name || null}
-      complaints={(complaints as any) || []}
-      departments={(departments as any) || []}
+    <ExecutiveDashboardClient
+      initialMetrics={{
+        totalComplaints,
+        resolutionRate,
+        activeTickets,
+        slaBreaches,
+        escalationsCount,
+        reopenRate,
+        avgResolutionTimeHours: 24.5,
+      }}
+      initialNearSla={nearSlaBreaches}
+      initialDepartmentWorkload={departmentWorkload}
     />
   )
-}
-
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Good Morning'
-  if (hour < 17) return 'Good Afternoon'
-  return 'Good Evening'
 }

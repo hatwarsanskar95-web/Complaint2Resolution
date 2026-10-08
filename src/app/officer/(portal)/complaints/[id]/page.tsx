@@ -2,6 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { Complaint, ComplaintImage, ComplaintStatusHistory, ComplaintAiAnalysis } from '@/lib/types'
 import OfficerComplaintDetailClient from '@/components/officer/OfficerComplaintDetailClient'
+import { checkAndLogSlaThresholds } from '@/lib/services/slaService'
+
+// Phase 17 — Officer Complaint Detail Page with Status State Machine
+// Removed auto-transition; now uses explicit Status Action Bar in client
 
 export default async function OfficerComplaintDetailPage({
   params,
@@ -21,24 +25,8 @@ export default async function OfficerComplaintDetailPage({
 
   if (!complaint) notFound()
 
-  // AUTOMATIC IN_PROGRESS TRANSITION:
-  // When an assigned officer opens a complaint in RECEIVED or ASSIGNED status, automatically transition to IN_PROGRESS
-  if (['RECEIVED', 'ASSIGNED', 'SUBMITTED'].includes(complaint.status)) {
-    await supabase
-      .from('complaints')
-      .update({ status: 'IN_PROGRESS' })
-      .eq('id', id)
-
-    await supabase.from('complaint_status_history').insert({
-      complaint_id: id,
-      old_status: complaint.status,
-      new_status: 'IN_PROGRESS',
-      updated_by: user.id,
-      notes: 'Automatically started when officer opened this complaint',
-    })
-
-    complaint.status = 'IN_PROGRESS'
-  }
+  // Phase 18 — Log SLA threshold events server-side when officer opens this complaint
+  await checkAndLogSlaThresholds(complaint.id, complaint.sla_deadline, complaint.sla_start_time)
 
   const [{ data: images }, { data: history }, { data: aiAnalysis }] = await Promise.all([
     supabase.from('complaint_images').select('*').eq('complaint_id', id).order('created_at'),

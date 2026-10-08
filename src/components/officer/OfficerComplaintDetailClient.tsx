@@ -3,8 +3,9 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import {
-  ArrowLeft, MapPin, Calendar, Clock, CheckCircle2, Send, Upload,
+  ArrowLeft, MapPin, Clock, CheckCircle2, Upload,
   FileText, ZoomIn, X, Info, ShieldCheck, Layers,
+  Play, UserCheck, ArrowRight as ArrowRightIcon, AlertTriangle,
 } from 'lucide-react'
 import {
   Complaint, ComplaintImage, ComplaintStatusHistory, ComplaintAiAnalysis,
@@ -31,9 +32,9 @@ export default function OfficerComplaintDetailClient({
   officerId,
 }: Props) {
   const supabase = createClient()
-  const [notes, setNotes] = useState('')
-  const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [transitioning, setTransitioning] = useState(false)
+  const [currentStatus, setCurrentStatus] = useState<ComplaintStatus>(c.status)
   const [evidenceImages, setEvidenceImages] = useState<ComplaintImage[]>(
     initialImages.filter((i) => i.image_type === 'after' || i.image_type === 'before')
   )
@@ -41,13 +42,35 @@ export default function OfficerComplaintDetailClient({
 
   const originalPhoto = initialImages.find((i) => i.image_type === 'original')
   const { percent, label, formattedTimeLeft } = getSlaStatus(c.sla_deadline, c.sla_start_time)
-  const isWorkable = c.status === 'IN_PROGRESS' || c.status === 'REOPENED'
+  const isWorkable = currentStatus === 'IN_PROGRESS' || currentStatus === 'REOPENED'
+  const isBreached = label === 'breached'
 
   const slaBarColor =
     label === 'breached' ? 'bg-rose-500' :
     label === 'critical' ? 'bg-rose-400' :
     label === 'warning' ? 'bg-amber-400' :
     label === 'reminder' ? 'bg-yellow-400' : 'bg-emerald-400'
+
+  // Phase 17 — Status Transition via API
+  const transitionStatus = async (newStatus: ComplaintStatus, notes?: string) => {
+    setTransitioning(true)
+    const toastId = toast.loading(`Transitioning to ${STATUS_LABELS[newStatus] ?? newStatus}...`)
+    try {
+      const res = await fetch(`/api/officer/complaints/${c.id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_status: newStatus, notes }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Transition failed')
+      setCurrentStatus(newStatus)
+      toast.update(toastId, { type: 'success', message: `Status → ${STATUS_LABELS[newStatus] ?? newStatus}` })
+      setTimeout(() => window.location.reload(), 800)
+    } catch (err: unknown) {
+      toast.update(toastId, { type: 'error', message: err instanceof Error ? err.message : 'Transition failed' })
+      setTransitioning(false)
+    }
+  }
 
   const handleUploadEvidence = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -74,37 +97,6 @@ export default function OfficerComplaintDetailClient({
     }
   }
 
-  const handleSubmitResolution = async () => {
-    if (!notes.trim()) {
-      toast.error('Please enter work/action notes before submitting.')
-      return
-    }
-    setSubmitting(true)
-    const toastId = toast.loading('Submitting resolution for AI verification...')
-    try {
-      const { error: resErr } = await supabase.from('resolution_submissions').insert({
-        complaint_id: c.id, officer_id: officerId,
-        action_taken_notes: notes, resolution_date: new Date().toISOString(),
-      })
-      if (resErr) throw resErr
-      const { error: updErr } = await supabase
-        .from('complaints').update({ status: 'RESOLUTION_SUBMITTED' }).eq('id', c.id)
-      if (updErr) throw updErr
-      await supabase.from('complaint_status_history').insert({
-        complaint_id: c.id, old_status: c.status, new_status: 'RESOLUTION_SUBMITTED',
-        updated_by: officerId, notes,
-      })
-      fetch('/api/complaints/analyze', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ complaintId: c.id, stage: 'resolution_verification' }),
-      }).catch(() => {})
-      toast.update(toastId, { type: 'success', message: 'Resolution submitted! Undergoing AI verification.' })
-      setTimeout(() => window.location.reload(), 1000)
-    } catch (err: unknown) {
-      toast.update(toastId, { type: 'error', message: err instanceof Error ? err.message : 'Submission failed' })
-      setSubmitting(false)
-    }
-  }
 
   return (
     <>
@@ -162,7 +154,17 @@ export default function OfficerComplaintDetailClient({
           </div>
         </FadeIn>
 
-        {/* ── 3-COLUMN WORKSPACE ── */}
+        {/* ── STATUS ACTION BAR (Phase 17) ── */}
+        <FadeIn direction="up" delay={0.03}>
+          <StatusActionBar
+            status={currentStatus}
+            isBreached={isBreached}
+            transitioning={transitioning}
+            complaintId={c.id}
+            onTransition={transitionStatus}
+          />
+        </FadeIn>
+
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
 
           {/* ── LEFT COLUMN ── */}
@@ -338,47 +340,21 @@ export default function OfficerComplaintDetailClient({
                 <div className="rounded-2xl border border-emerald-500/40 bg-[#0a1811] overflow-hidden">
                   <div className="flex items-center gap-2 px-5 py-3.5 border-b border-emerald-900/40 bg-emerald-950/20">
                     <CheckCircle2 size={14} className="text-emerald-400" />
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Resolution Submission</h3>
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Submit Resolution</h3>
                   </div>
-                  <div className="p-5 flex flex-col gap-4">
-                    {/* Action Notes */}
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-bold text-slate-300">
-                        Field Work Notes <span className="text-rose-400">*</span>
-                      </label>
-                      <textarea
-                        rows={4}
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Describe inspection performed, equipment replaced, or corrective action taken..."
-                        className="w-full p-3 text-xs rounded-xl bg-[#060c09] border border-slate-800 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500/60 resize-none"
-                      />
-                    </div>
-
-                    {/* Evidence Upload */}
-                    <div className="flex flex-col gap-2">
-                      <label className="text-xs font-bold text-slate-300">
-                        Before / After Evidence Photos <span className="text-slate-500">(Recommended)</span>
-                      </label>
-                      <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition-colors border border-slate-700 w-fit">
-                        <Upload size={13} />
-                        {uploading ? 'Uploading...' : 'Upload Evidence Photo'}
-                        <input type="file" accept="image/*" onChange={handleUploadEvidence} disabled={uploading} className="hidden" />
-                      </label>
-                      {evidenceImages.length > 0 && (
-                        <p className="text-[10px] text-emerald-400">{evidenceImages.length} photo(s) uploaded</p>
-                      )}
-                    </div>
-
-                    {/* Submit */}
-                    <button
-                      onClick={handleSubmitResolution}
-                      disabled={submitting || !notes.trim()}
-                      className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.35)] flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  <div className="p-5 flex flex-col gap-3">
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Submit your resolution with <strong className="text-white">action notes</strong>,
+                      a <strong className="text-white">before photo</strong>, and an
+                      <strong className="text-white"> after photo</strong>. All 3 fields are mandatory.
+                    </p>
+                    <Link
+                      href={`/officer/complaints/${c.id}/resolve`}
+                      className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.35)] flex items-center justify-center gap-2 transition-all"
                     >
-                      <Send size={14} />
-                      {submitting ? 'Submitting...' : 'Submit Completed Resolution'}
-                    </button>
+                      <CheckCircle2 size={14} />
+                      Open Resolution Form
+                    </Link>
                   </div>
                 </div>
               ) : (
@@ -387,8 +363,8 @@ export default function OfficerComplaintDetailClient({
                   <div>
                     <p className="font-semibold text-slate-300 mb-0.5">Work Controls Locked</p>
                     <p>
-                      This complaint is in <strong className="text-white">{STATUS_LABELS[c.status as ComplaintStatus] || c.status}</strong> state.
-                      Resolution submission is only available when status is In Progress or Reopened.
+                      This complaint is in <strong className="text-white">{STATUS_LABELS[currentStatus as ComplaintStatus] || currentStatus}</strong> state.
+                      Use the Status Action Bar above to progress it to In Progress first.
                     </p>
                   </div>
                 </div>
@@ -419,6 +395,71 @@ function MetaItem({ label, value }: { label: string; value: string }) {
     <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
       <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
       <p className="font-semibold text-slate-300 text-xs truncate">{value}</p>
+    </div>
+  )
+}
+
+// ── Phase 17: Status Action Bar ──
+function StatusActionBar({
+  status, isBreached, transitioning, complaintId, onTransition
+}: {
+  status: ComplaintStatus
+  isBreached: boolean
+  transitioning: boolean
+  complaintId: string
+  onTransition: (s: ComplaintStatus, notes?: string) => void
+}) {
+  const RECEIVED_OR_SUBMITTED = ['RECEIVED', 'SUBMITTED'].includes(status)
+  const isAssigned = status === 'ASSIGNED'
+  const isInProgress = status === 'IN_PROGRESS' || status === 'REOPENED'
+
+  if (!RECEIVED_OR_SUBMITTED && !isAssigned && !isInProgress) return null
+
+  return (
+    <div className={`rounded-2xl border p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 ${
+      isBreached ? 'border-rose-500/50 bg-rose-950/15' : 'border-emerald-500/25 bg-emerald-950/10'
+    }`}>
+      <div className="flex-1">
+        <p className="text-xs font-bold text-white mb-0.5">Status Action Bar</p>
+        <p className="text-[11px] text-slate-400">
+          Current: <span className="font-semibold text-slate-200">{STATUS_LABELS[status] ?? status}</span>
+          {isBreached && <span className="ml-2 text-rose-400 font-bold animate-pulse">⚠ SLA BREACHED</span>}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {RECEIVED_OR_SUBMITTED && (
+          <button
+            onClick={() => onTransition('ASSIGNED', 'Officer accepted and claimed this complaint')}
+            disabled={transitioning}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-all shadow-[0_0_12px_rgba(37,99,235,0.35)]"
+          >
+            <UserCheck size={14} /> Accept &amp; Assign to Me
+          </button>
+        )}
+        {isAssigned && (
+          <button
+            onClick={() => onTransition('IN_PROGRESS', 'Officer started field work')}
+            disabled={transitioning}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)]"
+          >
+            <Play size={14} /> Start Work
+          </button>
+        )}
+        {isInProgress && (
+          <Link
+            href={`/officer/complaints/${complaintId}/resolve`}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-[0_0_12px_rgba(147,51,234,0.35)]"
+          >
+            <ArrowRightIcon size={14} /> Submit Resolution Evidence
+          </Link>
+        )}
+        {transitioning && (
+          <span className="flex items-center gap-1.5 text-xs text-slate-400">
+            <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            Processing...
+          </span>
+        )}
+      </div>
     </div>
   )
 }
