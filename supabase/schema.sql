@@ -281,6 +281,14 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- Helper for hash_text compatibility
+CREATE OR REPLACE FUNCTION public.hash_text(txt text)
+RETURNS integer AS $$
+BEGIN
+  RETURN hashtext(txt);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
 -- 2. Permanent Complaint ID Generator (Format: CR-YYYY-XXXXXX)
 CREATE OR REPLACE FUNCTION public.generate_complaint_id()
 RETURNS TRIGGER AS $$
@@ -292,7 +300,7 @@ BEGIN
   current_year := TO_CHAR(NOW(), 'YYYY');
   
   -- Acquire an advisory lock to prevent race conditions during concurrent submissions
-  PERFORM pg_advisory_xact_lock(hash_text('complaint_id_lock'));
+  PERFORM pg_advisory_xact_lock(hashtext('complaint_id_lock'));
   
   SELECT COALESCE(MAX(SUBSTRING(permanent_id FROM 9)::INT), 0) + 1
   INTO next_seq

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
@@ -12,14 +12,42 @@ export async function GET(
     }
 
     const cleanId = permanentId.trim().toUpperCase()
-    const supabase = await createClient()
+    // Use service role client to allow public tracking lookup without RLS blocking cross-account/unauthenticated reads
+    const supabase = createServiceRoleClient()
 
-    // Query complaint by permanent_id or id
-    const { data: complaint, error: complaintErr } = await supabase
+    const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(cleanId)
+    
+    let query = supabase
       .from('complaints')
       .select('id, permanent_id, category, subcategory, description, address, latitude, longitude, priority, status, sla_start_time, sla_duration_hours, sla_deadline, created_at, updated_at, departments(name, code)')
-      .or(`permanent_id.ilike.${cleanId},id.eq.${cleanId}`)
-      .single()
+
+    if (isUuid) {
+      query = query.or(`permanent_id.ilike.${cleanId},id.eq.${cleanId}`)
+    } else {
+      query = query.ilike('permanent_id', cleanId)
+    }
+
+    let { data: complaint, error: complaintErr } = await query.single()
+
+    // Fallback to standard client if service role query returns empty or error
+    if (complaintErr || !complaint) {
+      const anonSupabase = await createClient()
+      let anonQuery = anonSupabase
+        .from('complaints')
+        .select('id, permanent_id, category, subcategory, description, address, latitude, longitude, priority, status, sla_start_time, sla_duration_hours, sla_deadline, created_at, updated_at, departments(name, code)')
+
+      if (isUuid) {
+        anonQuery = anonQuery.or(`permanent_id.ilike.${cleanId},id.eq.${cleanId}`)
+      } else {
+        anonQuery = anonQuery.ilike('permanent_id', cleanId)
+      }
+
+      const res = await anonQuery.single()
+      if (res.data) {
+        complaint = res.data
+        complaintErr = null
+      }
+    }
 
     if (complaintErr || !complaint) {
       return NextResponse.json({ error: 'Complaint ticket not found. Please check the Permanent ID (e.g. CR-2026-000001).' }, { status: 404 })

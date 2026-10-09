@@ -248,7 +248,7 @@ export interface AuditLog {
 // SLA HELPER & LABELS
 // ============================================================
 
-export function getSlaStatus(slaDeadline: string | null, slaStartTime: string | null): {
+export function getSlaStatus(slaDeadline: string | null, slaStartTime: string | null, complaintStatus?: string): {
   percent: number
   label: 'normal' | 'reminder' | 'warning' | 'critical' | 'breached'
   hoursLeft: number
@@ -258,13 +258,27 @@ export function getSlaStatus(slaDeadline: string | null, slaStartTime: string | 
     return { percent: 0, label: 'normal', hoursLeft: 0, formattedTimeLeft: 'N/A' }
   }
 
-  const now = Date.now()
+  const TERMINAL_STATUSES = ['CLOSED', 'RESOLVED']
+  const isClosed = complaintStatus && TERMINAL_STATUSES.includes(complaintStatus)
+
   const start = new Date(slaStartTime).getTime()
   const deadline = new Date(slaDeadline).getTime()
   const total = deadline - start
-  const elapsed = now - start
 
-  const percent = total > 0 ? Math.min(Math.round((elapsed / total) * 100), 100) : 100
+  // For closed/resolved complaints, show frozen SLA state at deadline
+  if (isClosed) {
+    const wasBreached = Date.now() > deadline // check if it was breached when closed
+    return {
+      percent: wasBreached ? 100 : Math.min(Math.round(((deadline - start * 0.99) / total) * 100), 99),
+      label: wasBreached ? 'breached' : 'normal',
+      hoursLeft: 0,
+      formattedTimeLeft: wasBreached ? 'SLA Breached (Closed)' : 'SLA Met ✓',
+    }
+  }
+
+  const now = Date.now()
+
+  const percent = total > 0 ? Math.min(Math.round(((now - start) / total) * 100), 100) : 100
   const diffMs = deadline - now
   const hoursLeft = Math.round(diffMs / 3600000)
 

@@ -73,7 +73,7 @@ export default function OfficerDashboardClient({
       if (['RESOLVED', 'CLOSED'].includes(c.status)) {
         resolved++
       } else if (c.sla_deadline) {
-        const { label } = getSlaStatus(c.sla_deadline, c.sla_start_time ?? null)
+        const { label } = getSlaStatus(c.sla_deadline, c.sla_start_time ?? null, c.status)
         if (label === 'breached') breached++
         else if (label === 'warning' || label === 'critical') atRisk++
         else onTrack++
@@ -106,9 +106,6 @@ export default function OfficerDashboardClient({
   // Open complaint drawer
   const handleOpenComplaint = (c: ComplaintItem) => {
     setSelectedComplaint(c)
-    if (c.status === 'RECEIVED' || c.status === 'ASSIGNED') {
-      c.status = 'IN_PROGRESS'
-    }
   }
 
   const todayStr = new Date().toLocaleDateString('en-IN', {

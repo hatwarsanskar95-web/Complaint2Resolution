@@ -4,20 +4,21 @@ import { getGeminiClient, GEMINI_DEFAULT_MODEL } from '@/lib/gemini'
 import { executeSmartRouting } from '@/lib/services/routingService'
 import { z } from 'zod'
 
+// Exact department names from the database
 const DEPARTMENTS: Record<string, string[]> = {
-  'Roads & Potholes': ['Roads', 'Potholes', 'Footpath', 'Divider', 'Traffic Signal', 'Road Lighting'],
-  'Water Supply': ['Water Supply', 'Water Leakage', 'Water Quality', 'No Water', 'Water Pressure'],
+  'Roads / Public Works': ['Roads', 'Potholes', 'Footpath', 'Divider', 'Traffic Signal', 'Road Lighting', 'Road Damage'],
+  'Water Management': ['Water Supply', 'Water Leakage', 'Water Quality', 'No Water', 'Water Pressure', 'Water Pipe', 'Water Pump'],
   'Sanitation': ['Garbage', 'Waste Disposal', 'Open Defecation', 'Toilet', 'Sewage'],
   'Drainage': ['Drainage', 'Waterlogging', 'Stormwater', 'Flood', 'Blocked Drain'],
   'Electrical': ['Street Light', 'Power Outage', 'Fallen Wire', 'Electrical Hazard'],
-  'Parks & Gardens': ['Park', 'Garden', 'Trees', 'Encroachment', 'Public Space'],
+  'Parks & Recreation': ['Park', 'Garden', 'Trees', 'Encroachment', 'Public Space'],
 }
 
 // Zod Schema for Structured Output Validation
 const AiAnalysisResultSchema = z.object({
-  category: z.string().catch('Roads & Potholes'),
+  category: z.string().catch('Roads / Public Works'),
   subcategory: z.string().catch('General Civic Issue'),
-  department: z.string().catch('Roads & Potholes'),
+  department: z.string().catch('Roads / Public Works'),
   priority: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']).catch('MEDIUM'),
   summary: z.string().catch('Civic issue reported by citizen needing municipal attention.'),
   recommended_actions: z.array(z.string()).catch(['Conduct on-site inspection', 'Assign to divisional field unit', 'Complete resolution within SLA']),
@@ -70,30 +71,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const prompt = `You are an AI assistant for a municipal civic complaint management system in India. 
-Analyze the provided multi-angle photographic evidence and citizen description to classify this complaint.
+const prompt = `You are an AI assistant for a municipal civic complaint management system in India.
+Analyze the provided multi-angle photographic evidence AND the citizen's written description to classify this complaint accurately.
 
-Description from citizen: "${description}"
+IMPORTANT CLASSIFICATION RULES (follow strictly):
+- If images show water leaking from a PIPE, tap, pump, or water supply line → category = "Water Management", department = "Water Management"
+- If images show road SURFACE damage (pothole, cracked road, broken pavement) → category = "Roads / Public Works", department = "Roads / Public Works"
+- A water leak NEAR a road does NOT make it a Roads complaint — classify by what is BROKEN, not where it is
+- If images show drainage overflow or waterlogging from drains → category = "Drainage", department = "Drainage"
+- If images show uncollected garbage or waste → category = "Sanitation", department = "Sanitation"
+- If images show broken/missing street lights → category = "Electrical", department = "Electrical"
+- If images show damage in a park or garden → category = "Parks & Recreation", department = "Parks & Recreation"
+- If images are unclear or contradict description, set confidence < 0.60 and needs_human_review = true
+- Do NOT invent visual observations not visible in the images
+
+Citizen description: "${description}"
 Location: ${address} (Lat: ${latitude}, Lng: ${longitude})
 
-Based on the evidence and description, return a JSON object with exactly these fields:
+Based on BOTH the visual evidence AND the description, return a JSON object with exactly these fields:
 {
-  "category": "<main category from: ${Object.keys(DEPARTMENTS).join(', ')}>",
-  "subcategory": "<specific subcategory>",
-  "department": "<exact department name>",
+  "category": "<one of: ${Object.keys(DEPARTMENTS).join(', ')}>",
+  "subcategory": "<specific subcategory based on what you observe>",
+  "department": "<exact department name from the category list above>",
   "priority": "<CRITICAL|HIGH|MEDIUM|LOW>",
-  "summary": "<1-2 sentence summary of the issue>",
+  "summary": "<1-2 sentence factual summary of what is observed and why it was classified this way>",
   "recommended_actions": ["<step 1>", "<step 2>", "<step 3>"],
   "suggested_sla_hours": <number>,
   "confidence": <0.0 to 1.0>,
-  "needs_human_review": <true|false>
+  "needs_human_review": <true if uncertain, false if confident>
 }
 
 Priority rules:
-- CRITICAL: Immediate safety hazard (live electrical wires, open manhole, severe sewage flood, bridge collapse)
-- HIGH: Major disruption (large road craters, main water line burst, overflowing garbage blockade)
-- MEDIUM: Moderate civic inconvenience (minor leak, overflowing bin, unpaved ditch)
-- LOW: Minor cosmetic issue (broken park bench, overgrown grass, faded sign)
+- CRITICAL: Immediate safety hazard (live electrical wires, open manhole, severe sewage flood)
+- HIGH: Major disruption (large road craters, main water line burst, overflowing garbage)
+- MEDIUM: Moderate civic issue (minor leak, overflowing bin, minor pothole)
+- LOW: Minor cosmetic issue (broken park bench, faded sign)
 
 Respond with ONLY the JSON object, no markdown code blocks.`
 
@@ -144,18 +156,46 @@ Respond with ONLY the JSON object, no markdown code blocks.`
 
     // Fallback handling if all 3 retry attempts fail
     if (!aiSuccess || !analysis) {
-      console.warn('[Analyze API] All Gemini AI retry attempts failed. Applying fallback processing.')
-      analysis = {
-        category: 'Roads & Potholes',
-        subcategory: 'General Civic Issue',
-        department: 'Roads & Potholes',
-        priority: 'MEDIUM',
-        summary: description.slice(0, 150),
-        recommended_actions: ['Conduct on-site inspection', 'Assign to divisional field unit', 'Complete resolution within SLA'],
-        suggested_sla_hours: 48,
-        confidence: 0.50,
-        needs_human_review: true,
-      }
+    // Keyword-based fallback department selection (better than always defaulting to Roads)
+    const descLower = (description || '').toLowerCase()
+    let fallbackCategory = 'Roads & Potholes'
+    let fallbackDept = 'Roads & Potholes'
+    let fallbackSubcategory = 'General Civic Issue'
+
+    if (/water|leak|pipe|pump|supply|tap|pressure|flow/.test(descLower)) {
+      fallbackCategory = 'Water Management'
+      fallbackDept = 'Water Management'
+      fallbackSubcategory = 'Water Leakage'
+    } else if (/drain|waterlog|flood|overflow|sewer|sewage/.test(descLower)) {
+      fallbackCategory = 'Drainage'
+      fallbackDept = 'Drainage'
+      fallbackSubcategory = 'Blocked Drain'
+    } else if (/garbage|waste|trash|litter|bin|sanit/.test(descLower)) {
+      fallbackCategory = 'Sanitation'
+      fallbackDept = 'Sanitation'
+      fallbackSubcategory = 'Garbage'
+    } else if (/light|electric|power|wire/.test(descLower)) {
+      fallbackCategory = 'Electrical'
+      fallbackDept = 'Electrical'
+      fallbackSubcategory = 'Street Light'
+    } else if (/park|garden|tree|grass/.test(descLower)) {
+      fallbackCategory = 'Parks & Recreation'
+      fallbackDept = 'Parks & Recreation'
+      fallbackSubcategory = 'Park'
+    }
+
+    console.warn('[Analyze API] All Gemini AI retry attempts failed. Applying keyword-based fallback.')
+    analysis = {
+      category: fallbackCategory,
+      subcategory: fallbackSubcategory,
+      department: fallbackDept,
+      priority: 'MEDIUM',
+      summary: description.slice(0, 150),
+      recommended_actions: ['Conduct on-site inspection', 'Assign to divisional field unit', 'Complete resolution within SLA'],
+      suggested_sla_hours: 48,
+      confidence: 0.40,
+      needs_human_review: true,
+    }
     }
 
     // Initial creation of complaint record

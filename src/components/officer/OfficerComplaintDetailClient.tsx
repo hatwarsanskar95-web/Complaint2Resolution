@@ -40,8 +40,9 @@ export default function OfficerComplaintDetailClient({
   )
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null)
 
-  const originalPhoto = initialImages.find((i) => i.image_type === 'original')
-  const { percent, label, formattedTimeLeft } = getSlaStatus(c.sla_deadline, c.sla_start_time)
+  const originalPhotos = initialImages.filter((i) => i.image_type === 'original')
+  const originalPhoto = originalPhotos[0] ?? null
+  const { percent, label, formattedTimeLeft } = getSlaStatus(c.sla_deadline, c.sla_start_time, c.status)
   const isWorkable = currentStatus === 'IN_PROGRESS' || currentStatus === 'REOPENED'
   const isBreached = label === 'breached'
 
@@ -177,18 +178,35 @@ export default function OfficerComplaintDetailClient({
                   <Layers size={14} className="text-emerald-400" />
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider">Citizen Evidence</h3>
                 </div>
-                <div className="p-5 flex flex-col gap-4">
-                  {originalPhoto ? (
-                    <div className="relative group cursor-zoom-in" onClick={() => setZoomPhoto(originalPhoto.image_url)}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={originalPhoto.image_url} alt="Citizen evidence"
-                        className="w-full max-h-72 object-cover rounded-xl border border-slate-800 group-hover:brightness-110 transition-all"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="bg-black/60 rounded-full p-2.5">
-                          <ZoomIn size={20} className="text-white" />
-                        </div>
+              <div className="p-5 flex flex-col gap-4">
+                  {originalPhotos.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                        Citizen Evidence ({originalPhotos.length} photo{originalPhotos.length > 1 ? 's' : ''})
+                      </p>
+                      <div className={`grid gap-2 ${originalPhotos.length === 1 ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
+                        {originalPhotos.map((photo, idx) => (
+                          <div
+                            key={photo.id}
+                            className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-slate-800"
+                            onClick={() => setZoomPhoto(photo.image_url)}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={photo.image_url}
+                              alt={`Citizen evidence ${idx + 1}`}
+                              className="w-full aspect-[4/3] object-cover group-hover:brightness-110 transition-all"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="bg-black/60 rounded-full p-2">
+                                <ZoomIn size={16} className="text-white" />
+                              </div>
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-white text-center py-0.5">
+                              Photo {idx + 1}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ) : (
@@ -433,7 +451,7 @@ function StatusActionBar({
             disabled={transitioning}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-all shadow-[0_0_12px_rgba(37,99,235,0.35)]"
           >
-            <UserCheck size={14} /> Accept &amp; Assign to Me
+            <UserCheck size={14} /> Accept
           </button>
         )}
         {isAssigned && (

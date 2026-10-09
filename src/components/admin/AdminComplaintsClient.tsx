@@ -80,6 +80,8 @@ export default function AdminComplaintsClient({ departments }: AdminComplaintsCl
   }, [search, status, departmentId, priority, page])
 
   const inspectComplaint = async (item: ComplaintItem) => {
+    // Open detailed complaint PDF in new tab immediately
+    window.open(`/api/complaints/${item.id}/pdf`, '_blank')
     setSelectedComplaint(item)
     try {
       const res = await fetch(`/api/complaints/${item.id}/timeline`)
@@ -102,7 +104,7 @@ export default function AdminComplaintsClient({ departments }: AdminComplaintsCl
             Admin Complaint Monitoring & Audit System
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Real-time search, multi-department filtering, and audit log inspection.
+            Real-time search, multi-department filtering, and detailed PDF complaint inspection.
           </p>
         </div>
         <div className="text-sm font-semibold bg-slate-900 border border-slate-800 px-4 py-2 rounded-lg text-indigo-300">
@@ -249,12 +251,14 @@ export default function AdminComplaintsClient({ departments }: AdminComplaintsCl
                       {item.sla_deadline ? new Date(item.sla_deadline).toLocaleString() : 'N/A'}
                     </td>
                     <td className="p-3 text-right">
-                      <button
-                        onClick={() => inspectComplaint(item)}
-                        className="bg-indigo-950 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 px-2.5 py-1 rounded text-xs inline-flex items-center gap-1 transition-colors"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> Inspect
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => inspectComplaint(item)}
+                          className="bg-indigo-950 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 px-2.5 py-1 rounded text-xs inline-flex items-center gap-1 transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> Inspect Complaint
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -304,6 +308,28 @@ export default function AdminComplaintsClient({ departments }: AdminComplaintsCl
               </button>
             </div>
 
+            {/* Action buttons required in Part 1 */}
+            <div className="flex items-center gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800">
+              <button
+                onClick={() => window.open(`/api/complaints/${selectedComplaint.id}/pdf`, '_blank')}
+                className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors"
+              >
+                <FileText className="w-4 h-4" /> View Detailed PDF
+              </button>
+              <button
+                onClick={() => window.open(`/api/complaints/${selectedComplaint.id}/pdf`, '_blank')}
+                className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs transition-colors"
+              >
+                Download PDF
+              </button>
+              <button
+                onClick={() => setSelectedComplaint(null)}
+                className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 font-semibold text-xs ml-auto transition-colors border border-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
             <div className="space-y-4 text-xs">
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
                 <div><span className="text-slate-500">Address:</span> {selectedComplaint.address}</div>
@@ -342,3 +368,4 @@ export default function AdminComplaintsClient({ departments }: AdminComplaintsCl
     </div>
   )
 }
+

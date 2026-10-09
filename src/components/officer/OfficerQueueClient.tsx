@@ -1,16 +1,19 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, Inbox, User, Wrench, Clock, ShieldAlert,
+  LayoutDashboard, Inbox, User, Wrench, Clock,
   CheckCircle2, Archive, ArrowRight, MapPin, Search, Building2,
-  AlertTriangle, Sparkles,
+  AlertTriangle, Sparkles, RefreshCw,
 } from 'lucide-react'
 import { Complaint, STATUS_LABELS, PRIORITY_LABELS, getSlaStatus, ComplaintStatus, PriorityLevel } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from '@/context/ToastContext'
 import { FadeIn, StaggerContainer, StaggerItem, AnimatedNumber } from '@/components/ui/motion'
+
+const POLL_INTERVAL_SECONDS = 30
 
 type ComplaintWithDept = Complaint & { departments?: { name: string; code: string } }
 
@@ -67,9 +70,13 @@ const PRIORITY_BADGE: Record<string, string> = {
 }
 
 export default function OfficerQueueClient({ officerName, departmentName, officerId, queues, metrics }: Props) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabKey>('new')
   const [search, setSearch] = useState('')
   const [claiming, setClaiming] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [countdown, setCountdown] = useState(POLL_INTERVAL_SECONDS)
+  const countdownRef = useRef(POLL_INTERVAL_SECONDS)
   const supabase = createClient()
 
   const currentList = queues[activeTab]
@@ -84,6 +91,30 @@ export default function OfficerQueueClient({ officerName, departmentName, office
       c.category.toLowerCase().includes(q)
     )
   }, [currentList, search])
+
+  // Manual + auto-poll refresh
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    router.refresh()
+    countdownRef.current = POLL_INTERVAL_SECONDS
+    setCountdown(POLL_INTERVAL_SECONDS)
+    await new Promise((r) => setTimeout(r, 600))
+    setRefreshing(false)
+  }, [router])
+
+  // Countdown tick and auto-refresh every POLL_INTERVAL_SECONDS
+  useEffect(() => {
+    const tick = setInterval(() => {
+      countdownRef.current -= 1
+      setCountdown(countdownRef.current)
+      if (countdownRef.current <= 0) {
+        countdownRef.current = POLL_INTERVAL_SECONDS
+        setCountdown(POLL_INTERVAL_SECONDS)
+        router.refresh()
+      }
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [router])
 
   // Claim a complaint (New queue → ASSIGNED)
   async function handleClaim(complaint: ComplaintWithDept) {
@@ -104,7 +135,7 @@ export default function OfficerQueueClient({ officerName, departmentName, office
         notes: `Claimed by Officer ${officerName}`,
       })
       toast.update(toastId, { type: 'success', message: `${complaint.permanent_id} claimed successfully.` })
-      setTimeout(() => window.location.reload(), 800)
+      setTimeout(() => handleRefresh(), 800)
     } catch (err: unknown) {
       toast.update(toastId, { type: 'error', message: err instanceof Error ? err.message : 'Claim failed' })
       setClaiming(null)
@@ -126,9 +157,21 @@ export default function OfficerQueueClient({ officerName, departmentName, office
               Welcome back, <span className="text-white font-semibold">{officerName}</span> · {departmentName}
             </p>
           </div>
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/50 border border-emerald-500/25 text-xs text-emerald-400 font-semibold">
-            <Building2 size={13} />
-            {departmentName}
+          <div className="flex items-center gap-2">
+            {/* Live Refresh Button + Countdown */}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title={`Auto-refreshes in ${countdown}s. Click to refresh now.`}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-700 hover:border-emerald-500/50 text-xs text-slate-300 hover:text-emerald-400 font-semibold transition-all disabled:opacity-60 cursor-pointer"
+            >
+              <RefreshCw size={13} className={refreshing ? 'animate-spin text-emerald-400' : ''} />
+              {refreshing ? 'Refreshing…' : `Refresh (${countdown}s)`}
+            </button>
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/50 border border-emerald-500/25 text-xs text-emerald-400 font-semibold">
+              <Building2 size={13} />
+              {departmentName}
+            </div>
           </div>
         </div>
       </FadeIn>

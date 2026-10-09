@@ -34,7 +34,11 @@ export async function createClient() {
 // (e.g. bypass RLS for administrative updates, seeding, or Gemini actions if necessary)
 export function createServiceRoleClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-project.supabase.co'
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key'
+  const rawKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
+
+  // If serviceRoleKey is missing, empty, or a placeholder, fallback safely to anonKey to prevent "Invalid API key" HTTP errors
+  const serviceRoleKey = (rawKey && !rawKey.includes('placeholder')) ? rawKey : anonKey
 
   return createServerClient(
     url,

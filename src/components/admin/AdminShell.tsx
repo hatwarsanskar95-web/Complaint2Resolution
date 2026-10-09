@@ -40,6 +40,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
+  { href: '/admin/department-performance', label: 'Department Performance', icon: <BarChart3 size={18} /> },
   { href: '/admin/departments', label: 'Departments', icon: <Building2 size={18} />, superAdminOnly: true },
   { href: '/admin/officers', label: 'Officers', icon: <Users size={18} /> },
   { href: '/admin/complaints', label: 'Complaints', icon: <FileText size={18} /> },
