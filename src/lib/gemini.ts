@@ -19,4 +19,4 @@ export function getGeminiClient(): GoogleGenAI {
   return geminiClientInstance
 }
 
-export const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash'
+export const GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash'

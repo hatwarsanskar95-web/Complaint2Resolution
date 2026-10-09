@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -47,7 +47,21 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const role = (user?.user_metadata?.role || 'citizen').toLowerCase()
+  // ─────────────────────────────────────────────────────────────────────────
+  // CRITICAL: Always derive role from the profiles table (server-authoritative)
+  // NOT from user_metadata, which is unreliable for seeded/demo accounts
+  // that were inserted directly into the database without going through signup.
+  // user_metadata.role is only set during the Supabase auth signUp() call.
+  // ─────────────────────────────────────────────────────────────────────────
+  let role = 'citizen'
+  if (user) {
+    const { data: profileRow } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    role = (profileRow?.role ?? user.user_metadata?.role ?? 'citizen').toLowerCase()
+  }
 
   // 1. Protect Admin routes (must be dept_admin or super_admin)
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
@@ -82,7 +96,7 @@ export async function middleware(request: NextRequest) {
     if ((pathname === '/login' || pathname === '/signup') && role === 'citizen') {
       return NextResponse.redirect(new URL('/citizen/dashboard', request.url))
     }
-    if (pathname === '/officer/login' && role === 'officer') {
+    if (pathname === '/officer/login' && (role === 'officer' || role === 'dept_admin' || role === 'super_admin')) {
       return NextResponse.redirect(new URL('/officer/dashboard', request.url))
     }
     if (pathname === '/admin/login' && (role === 'super_admin' || role === 'dept_admin')) {

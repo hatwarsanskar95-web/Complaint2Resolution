@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import {
@@ -33,7 +33,10 @@ export default function CitizenComplaintsClient({
 }: {
   initialComplaints: ComplaintItem[]
 }) {
-  const supabase = createClient()
+  // Stable client reference — must NOT be recreated on every render
+  // (calling createClient() in component body without useMemo causes [supabase] dep
+  // in useEffect to change every render, re-registering the auth listener infinitely)
+  const supabase = useMemo(() => createClient(), [])
   const [complaints, setComplaints] = useState<ComplaintItem[]>(initialComplaints)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'RESOLVED'>('ALL')
