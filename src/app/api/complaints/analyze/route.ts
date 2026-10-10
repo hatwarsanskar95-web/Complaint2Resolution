@@ -158,8 +158,8 @@ Respond with ONLY the JSON object, no markdown code blocks.`
     if (!aiSuccess || !analysis) {
     // Keyword-based fallback department selection (better than always defaulting to Roads)
     const descLower = (description || '').toLowerCase()
-    let fallbackCategory = 'Roads & Potholes'
-    let fallbackDept = 'Roads & Potholes'
+    let fallbackCategory = 'Roads / Public Works'
+    let fallbackDept = 'Roads / Public Works'
     let fallbackSubcategory = 'General Civic Issue'
 
     if (/water|leak|pipe|pump|supply|tap|pressure|flow/.test(descLower)) {

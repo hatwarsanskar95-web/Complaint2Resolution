@@ -5,10 +5,11 @@ import Link from 'next/link'
 import {
   ArrowLeft, MapPin, Clock, CheckCircle2, Upload,
   FileText, ZoomIn, X, Info, ShieldCheck, Layers,
-  Play, UserCheck, ArrowRight as ArrowRightIcon, AlertTriangle,
+  Play, UserCheck, ArrowRight as ArrowRightIcon, AlertTriangle, RefreshCw
 } from 'lucide-react'
 import {
   Complaint, ComplaintImage, ComplaintStatusHistory, ComplaintAiAnalysis,
+  CitizenVerification, ResolutionSubmission,
   STATUS_LABELS, getSlaStatus, ComplaintStatus,
 } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
@@ -22,6 +23,8 @@ interface Props {
   timeline: ComplaintStatusHistory[]
   ai: ComplaintAiAnalysis | null
   officerId: string
+  disputeVerification?: CitizenVerification | null
+  resolutionSubmission?: ResolutionSubmission | null
 }
 
 export default function OfficerComplaintDetailClient({
@@ -30,20 +33,24 @@ export default function OfficerComplaintDetailClient({
   timeline,
   ai,
   officerId,
+  disputeVerification,
+  resolutionSubmission,
 }: Props) {
   const supabase = createClient()
-  const [uploading, setUploading] = useState(false)
   const [transitioning, setTransitioning] = useState(false)
   const [currentStatus, setCurrentStatus] = useState<ComplaintStatus>(c.status)
-  const [evidenceImages, setEvidenceImages] = useState<ComplaintImage[]>(
-    initialImages.filter((i) => i.image_type === 'after' || i.image_type === 'before')
-  )
   const [zoomPhoto, setZoomPhoto] = useState<string | null>(null)
 
   const originalPhotos = initialImages.filter((i) => i.image_type === 'original')
-  const originalPhoto = originalPhotos[0] ?? null
+  const beforeAfterPhotos = initialImages.filter((i) => i.image_type === 'before' || i.image_type === 'after')
+  const disputePhotoFromImages = initialImages.find((i) => i.image_type === 'dispute')?.image_url
+  const disputePhotoUrl = disputeVerification?.dispute_photo_url || disputePhotoFromImages || null
+
+  const hasDispute = currentStatus === 'DISPUTED' || currentStatus === 'REOPENED' || !!disputeVerification || !!disputePhotoUrl
+  const hasPreviousResolution = !!resolutionSubmission || beforeAfterPhotos.length > 0
+
   const { percent, label, formattedTimeLeft } = getSlaStatus(c.sla_deadline, c.sla_start_time, c.status)
-  const isWorkable = currentStatus === 'IN_PROGRESS' || currentStatus === 'REOPENED'
+  const isWorkable = currentStatus === 'IN_PROGRESS' || currentStatus === 'REOPENED' || currentStatus === 'DISPUTED'
   const isBreached = label === 'breached'
 
   const slaBarColor =
@@ -52,7 +59,7 @@ export default function OfficerComplaintDetailClient({
     label === 'warning' ? 'bg-amber-400' :
     label === 'reminder' ? 'bg-yellow-400' : 'bg-emerald-400'
 
-  // Phase 17 — Status Transition via API
+  // Status Transition Handler
   const transitionStatus = async (newStatus: ComplaintStatus, notes?: string) => {
     setTransitioning(true)
     const toastId = toast.loading(`Transitioning to ${STATUS_LABELS[newStatus] ?? newStatus}...`)
@@ -73,32 +80,6 @@ export default function OfficerComplaintDetailClient({
     }
   }
 
-  const handleUploadEvidence = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    const toastId = toast.loading('Uploading evidence photo...')
-    try {
-      const ext = file.name.split('.').pop()
-      const path = `${c.id}/resolution_${Date.now()}.${ext}`
-      const { error: uploadError } = await supabase.storage.from('resolution-evidence').upload(path, file)
-      if (uploadError) throw uploadError
-      const { data: { publicUrl } } = supabase.storage.from('resolution-evidence').getPublicUrl(path)
-      const { data: newImg, error: imgErr } = await supabase
-        .from('complaint_images')
-        .insert({ complaint_id: c.id, image_url: publicUrl, image_type: 'after' })
-        .select().single()
-      if (imgErr) throw imgErr
-      if (newImg) setEvidenceImages((prev) => [...prev, newImg as ComplaintImage])
-      toast.update(toastId, { type: 'success', message: 'Evidence photo uploaded.' })
-    } catch (err: unknown) {
-      toast.update(toastId, { type: 'error', message: err instanceof Error ? err.message : 'Upload failed' })
-    } finally {
-      setUploading(false)
-    }
-  }
-
-
   return (
     <>
       {/* ── Photo Zoom Modal ── */}
@@ -115,7 +96,9 @@ export default function OfficerComplaintDetailClient({
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={zoomPhoto} alt="Zoomed" onClick={(e) => e.stopPropagation()}
+            src={zoomPhoto}
+            alt="Zoomed"
+            onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-[90vh] object-contain rounded-xl border border-slate-700 shadow-2xl"
           />
         </div>
@@ -135,11 +118,12 @@ export default function OfficerComplaintDetailClient({
                 {c.permanent_id}
               </code>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                c.status === 'IN_PROGRESS' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' :
-                c.status === 'RESOLUTION_SUBMITTED' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
+                currentStatus === 'IN_PROGRESS' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' :
+                currentStatus === 'DISPUTED' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse' :
+                currentStatus === 'RESOLUTION_SUBMITTED' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
                 'bg-slate-700/40 text-slate-300 border-slate-700'
               }`}>
-                {STATUS_LABELS[c.status as ComplaintStatus] ?? c.status}
+                {STATUS_LABELS[currentStatus as ComplaintStatus] ?? currentStatus}
               </span>
             </div>
             {/* PDF Download Button */}
@@ -155,7 +139,7 @@ export default function OfficerComplaintDetailClient({
           </div>
         </FadeIn>
 
-        {/* ── STATUS ACTION BAR (Phase 17) ── */}
+        {/* ── STATUS ACTION BAR ── */}
         <FadeIn direction="up" delay={0.03}>
           <StatusActionBar
             status={currentStatus}
@@ -168,33 +152,35 @@ export default function OfficerComplaintDetailClient({
 
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
 
-          {/* ── LEFT COLUMN ── */}
+          {/* ── LEFT COLUMN: 3 SEPARATE EVIDENCE SECTIONS ── */}
           <div className="flex flex-col gap-5">
 
-            {/* Original Photo + Location */}
+            {/* SECTION 1: ORIGINAL COMPLAINT EVIDENCE */}
             <FadeIn direction="up" delay={0.05}>
               <div className="rounded-2xl border border-[#16291e] bg-[#09140f] overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-800/60">
-                  <Layers size={14} className="text-emerald-400" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">Citizen Evidence</h3>
+                <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-800/60 bg-emerald-950/20">
+                  <Layers size={15} className="text-emerald-400" />
+                  <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                    Original Complaint Evidence
+                  </h3>
                 </div>
-              <div className="p-5 flex flex-col gap-4">
+                <div className="p-5 flex flex-col gap-4">
                   {originalPhotos.length > 0 ? (
                     <div className="flex flex-col gap-2">
-                      <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                        Citizen Evidence ({originalPhotos.length} photo{originalPhotos.length > 1 ? 's' : ''})
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        Original Complaint Photos ({originalPhotos.length})
                       </p>
                       <div className={`grid gap-2 ${originalPhotos.length === 1 ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
                         {originalPhotos.map((photo, idx) => (
                           <div
                             key={photo.id}
-                            className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-slate-800"
+                            className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-slate-800 bg-slate-950"
                             onClick={() => setZoomPhoto(photo.image_url)}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={photo.image_url}
-                              alt={`Citizen evidence ${idx + 1}`}
+                              alt={`Original complaint evidence ${idx + 1}`}
                               className="w-full aspect-[4/3] object-cover group-hover:brightness-110 transition-all"
                             />
                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -202,30 +188,37 @@ export default function OfficerComplaintDetailClient({
                                 <ZoomIn size={16} className="text-white" />
                               </div>
                             </div>
-                            <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-[10px] text-white text-center py-0.5">
-                              Photo {idx + 1}
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[10px] text-slate-300 text-center py-0.5 font-semibold">
+                              Original Photo {idx + 1}
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
                   ) : (
-                    <div className="h-32 flex items-center justify-center text-slate-500 text-xs bg-slate-900/40 rounded-xl border border-slate-800">
-                      No photo evidence submitted
+                    <div className="h-24 flex items-center justify-center text-slate-500 text-xs bg-slate-900/40 rounded-xl border border-slate-800">
+                      No original photos submitted
                     </div>
                   )}
 
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Original Issue Description</p>
+                    <p className="text-xs sm:text-sm text-slate-200 leading-relaxed bg-slate-900/50 border border-slate-800 rounded-xl p-3.5">
+                      {c.description}
+                    </p>
+                  </div>
+
                   <div className="grid sm:grid-cols-2 gap-3 text-xs">
                     <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-800">
-                      <p className="text-slate-500 mb-1">Address</p>
+                      <p className="text-slate-500 mb-1 text-[10px]">Location Address</p>
                       <p className="text-slate-200 font-semibold flex items-center gap-1">
                         <MapPin size={12} className="text-emerald-400 shrink-0" />{c.address}
                       </p>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900/50 border border-slate-800">
-                      <p className="text-slate-500 mb-1">GPS Coordinates</p>
+                      <p className="text-slate-500 mb-1 text-[10px]">GPS Coordinates</p>
                       <p className="text-slate-200 font-mono font-semibold">
-                        {c.latitude?.toFixed(5)}, {c.longitude?.toFixed(5)}
+                        {c.latitude?.toFixed(5)}° N, {c.longitude?.toFixed(5)}° E
                       </p>
                     </div>
                   </div>
@@ -233,27 +226,146 @@ export default function OfficerComplaintDetailClient({
               </div>
             </FadeIn>
 
-            {/* Citizen Description */}
-            <FadeIn direction="up" delay={0.1}>
-              <div className="rounded-2xl border border-[#16291e] bg-[#09140f] overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-800/60">
-                  <Info size={14} className="text-slate-400" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">Citizen Description</h3>
-                </div>
-                <div className="p-5">
-                  <p className="text-sm text-slate-200 leading-relaxed bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                    {c.description}
-                  </p>
-                </div>
-              </div>
-            </FadeIn>
+            {/* SECTION 2: PREVIOUS OFFICER RESOLUTION EVIDENCE */}
+            {hasPreviousResolution && (
+              <FadeIn direction="up" delay={0.08}>
+                <div className="rounded-2xl border border-cyan-900/50 bg-[#09140f] overflow-hidden">
+                  <div className="flex items-center gap-2 px-5 py-3.5 border-b border-cyan-900/50 bg-cyan-950/20">
+                    <CheckCircle2 size={15} className="text-cyan-400" />
+                    <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider">
+                      Previous Officer Resolution Evidence
+                    </h3>
+                  </div>
+                  <div className="p-5 flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[10px] text-cyan-300 font-bold uppercase tracking-wider">Officer Action Taken / Notes</p>
+                      <p className="text-xs sm:text-sm text-slate-200 leading-relaxed bg-cyan-950/20 border border-cyan-900/40 rounded-xl p-3.5">
+                        {resolutionSubmission?.action_taken ||
+                          timeline.find(t => t.notes?.includes('Action:'))?.notes ||
+                          'Officer completed site work and submitted photographic evidence.'}
+                      </p>
+                    </div>
 
-            {/* Timeline */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {(resolutionSubmission?.before_photo_url || beforeAfterPhotos.find(i => i.image_type === 'before')) ? (
+                        <div
+                          className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-cyan-900/60 bg-slate-950"
+                          onClick={() => setZoomPhoto(resolutionSubmission?.before_photo_url || beforeAfterPhotos.find(i => i.image_type === 'before')!.image_url)}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={resolutionSubmission?.before_photo_url || beforeAfterPhotos.find(i => i.image_type === 'before')!.image_url}
+                            alt="Officer Before Fix"
+                            className="w-full aspect-[4/3] object-cover group-hover:brightness-110 transition-all"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="bg-black/60 rounded-full p-2">
+                              <ZoomIn size={16} className="text-white" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 bg-slate-950/80 text-[10px] font-bold text-amber-300 text-center py-1 uppercase">
+                            Before Fix Proof
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {(resolutionSubmission?.after_photo_url || beforeAfterPhotos.find(i => i.image_type === 'after')) ? (
+                        <div
+                          className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-cyan-900/60 bg-slate-950"
+                          onClick={() => setZoomPhoto(resolutionSubmission?.after_photo_url || beforeAfterPhotos.find(i => i.image_type === 'after')!.image_url)}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={resolutionSubmission?.after_photo_url || beforeAfterPhotos.find(i => i.image_type === 'after')!.image_url}
+                            alt="Officer After Fix"
+                            className="w-full aspect-[4/3] object-cover group-hover:brightness-110 transition-all"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="bg-black/60 rounded-full p-2">
+                              <ZoomIn size={16} className="text-white" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 bg-slate-950/80 text-[10px] font-bold text-emerald-300 text-center py-1 uppercase">
+                            After Fix Proof
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </FadeIn>
+            )}
+
+            {/* SECTION 3: CITIZEN DISPUTE — ISSUE NOT FIXED */}
+            {hasDispute && (
+              <FadeIn direction="up" delay={0.1}>
+                <div className="rounded-2xl border-2 border-rose-500/70 bg-[#170a0e] overflow-hidden shadow-[0_0_25px_rgba(244,63,94,0.2)]">
+                  <div className="flex items-center justify-between px-5 py-3.5 border-b border-rose-900/60 bg-rose-950/40">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={18} className="text-rose-400 animate-pulse" />
+                      <h3 className="text-xs font-bold text-rose-300 uppercase tracking-wider">
+                        CITIZEN DISPUTE — ISSUE NOT FIXED
+                      </h3>
+                    </div>
+                    {disputeVerification?.created_at && (
+                      <span className="text-[10px] font-mono text-rose-300/80">
+                        Submitted: {new Date(disputeVerification.created_at).toLocaleString('en-IN')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-5 flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <p className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">
+                        Citizen Dispute Explanation
+                      </p>
+                      <p className="text-xs sm:text-sm text-rose-100 leading-relaxed bg-rose-950/30 border border-rose-900/50 rounded-xl p-4">
+                        {disputeVerification?.dispute_reason ||
+                          timeline.find(t => t.notes?.includes('Citizen reported issue as unresolved') || t.new_status === 'DISPUTED')?.notes ||
+                          'Citizen reported that the issue remains unresolved after officer work.'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">
+                        Single New Photo Submitted With Dispute
+                      </p>
+                      {disputePhotoUrl ? (
+                        <div
+                          className="relative group cursor-zoom-in rounded-xl overflow-hidden border-2 border-rose-500/50 bg-slate-950 max-w-md"
+                          onClick={() => setZoomPhoto(disputePhotoUrl)}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={disputePhotoUrl}
+                            alt="Citizen dispute photo evidence"
+                            className="w-full aspect-[4/3] object-cover group-hover:brightness-110 transition-all"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="bg-black/70 rounded-full p-2.5">
+                              <ZoomIn size={18} className="text-white" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 bg-rose-950/90 text-[10px] font-extrabold text-rose-200 text-center py-1 uppercase tracking-wider border-t border-rose-800">
+                            Citizen Dispute Photo Evidence (Click to Inspect)
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-900/40 text-xs text-rose-300">
+                          Dispute submitted without uploaded image attachment.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </FadeIn>
+            )}
+
+            {/* Timeline History */}
             <FadeIn direction="up" delay={0.15}>
               <div className="rounded-2xl border border-[#16291e] bg-[#09140f] overflow-hidden">
                 <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-800/60">
                   <Clock size={14} className="text-slate-400" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">Status Timeline</h3>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">Status Timeline History</h3>
                   <span className="ml-auto text-[10px] font-mono text-slate-500">{timeline.length} events</span>
                 </div>
                 <div className="p-5">
@@ -264,7 +376,9 @@ export default function OfficerComplaintDetailClient({
                       {timeline.map((item, idx) => (
                         <StaggerItem key={item.id || idx}>
                           <div className="relative pl-4">
-                            <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#09140f]" />
+                            <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-[#09140f] ${
+                              item.new_status === 'DISPUTED' ? 'bg-rose-500' : 'bg-emerald-500'
+                            }`} />
                             <p className="text-xs font-bold text-white">
                               {STATUS_LABELS[item.new_status as ComplaintStatus] || item.new_status}
                             </p>
@@ -280,29 +394,6 @@ export default function OfficerComplaintDetailClient({
                 </div>
               </div>
             </FadeIn>
-
-            {/* Evidence Locker */}
-            {evidenceImages.length > 0 && (
-              <FadeIn direction="up" delay={0.2}>
-                <div className="rounded-2xl border border-[#16291e] bg-[#09140f] overflow-hidden">
-                  <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-800/60">
-                    <ShieldCheck size={14} className="text-emerald-400" />
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Resolution Evidence Locker</h3>
-                  </div>
-                  <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {evidenceImages.map((img) => (
-                      <div key={img.id} className="relative group cursor-zoom-in" onClick={() => setZoomPhoto(img.image_url)}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={img.image_url} alt="Evidence" className="h-24 w-full object-cover rounded-xl border border-slate-800 group-hover:brightness-110 transition-all" />
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <ZoomIn size={16} className="text-white" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </FadeIn>
-            )}
           </div>
 
           {/* ── RIGHT COLUMN ── */}
@@ -312,7 +403,7 @@ export default function OfficerComplaintDetailClient({
               <AiActionBrief complaint={c} ai={ai} />
             </FadeIn>
 
-            {/* SLA Bar (standalone) */}
+            {/* SLA Bar */}
             <FadeIn direction="up" delay={0.1}>
               <div className="rounded-2xl border border-slate-800 bg-[#09140f] p-5 flex flex-col gap-3">
                 <div className="flex items-center justify-between text-xs">
@@ -352,7 +443,7 @@ export default function OfficerComplaintDetailClient({
               </div>
             </FadeIn>
 
-            {/* Officer Resolution Work Area */}
+            {/* Officer Resolution Work Controls */}
             <FadeIn direction="up" delay={0.15}>
               {isWorkable ? (
                 <div className="rounded-2xl border border-emerald-500/40 bg-[#0a1811] overflow-hidden">
@@ -362,16 +453,16 @@ export default function OfficerComplaintDetailClient({
                   </div>
                   <div className="p-5 flex flex-col gap-3">
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Submit your resolution with <strong className="text-white">action notes</strong>,
+                      Submit new resolution with <strong className="text-white">action notes</strong>,
                       a <strong className="text-white">before photo</strong>, and an
                       <strong className="text-white"> after photo</strong>. All 3 fields are mandatory.
                     </p>
                     <Link
                       href={`/officer/complaints/${c.id}/resolve`}
-                      className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.35)] flex items-center justify-center gap-2 transition-all"
+                      className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.35)] flex items-center justify-center gap-2 transition-all cursor-pointer"
                     >
                       <CheckCircle2 size={14} />
-                      Open Resolution Form
+                      Submit Resolution Evidence
                     </Link>
                   </div>
                 </div>
@@ -417,7 +508,7 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   )
 }
 
-// ── Phase 17: Status Action Bar ──
+// ── Status Action Bar ──
 function StatusActionBar({
   status, isBreached, transitioning, complaintId, onTransition
 }: {
@@ -429,18 +520,25 @@ function StatusActionBar({
 }) {
   const RECEIVED_OR_SUBMITTED = ['RECEIVED', 'SUBMITTED'].includes(status)
   const isAssigned = status === 'ASSIGNED'
-  const isInProgress = status === 'IN_PROGRESS' || status === 'REOPENED'
+  const isDisputed = status === 'DISPUTED'
+  const isReopened = status === 'REOPENED'
+  const isInProgress = status === 'IN_PROGRESS'
 
-  if (!RECEIVED_OR_SUBMITTED && !isAssigned && !isInProgress) return null
+  if (!RECEIVED_OR_SUBMITTED && !isAssigned && !isDisputed && !isReopened && !isInProgress) return null
 
   return (
     <div className={`rounded-2xl border p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 ${
+      isDisputed ? 'border-rose-500/60 bg-rose-950/20 shadow-[0_0_20px_rgba(244,63,94,0.15)]' :
       isBreached ? 'border-rose-500/50 bg-rose-950/15' : 'border-emerald-500/25 bg-emerald-950/10'
     }`}>
       <div className="flex-1">
-        <p className="text-xs font-bold text-white mb-0.5">Status Action Bar</p>
+        <p className="text-xs font-bold text-white mb-0.5 flex items-center gap-2">
+          {isDisputed ? <AlertTriangle size={15} className="text-rose-400" /> : null}
+          <span>Status Action Bar</span>
+        </p>
         <p className="text-[11px] text-slate-400">
           Current: <span className="font-semibold text-slate-200">{STATUS_LABELS[status] ?? status}</span>
+          {isDisputed && <span className="ml-2 text-rose-300 font-bold"> — Citizen Reported Issue Not Fixed</span>}
           {isBreached && <span className="ml-2 text-rose-400 font-bold animate-pulse">⚠ SLA BREACHED</span>}
         </p>
       </div>
@@ -463,10 +561,28 @@ function StatusActionBar({
             <Play size={14} /> Start Work
           </button>
         )}
+        {isDisputed && (
+          <button
+            onClick={() => onTransition('IN_PROGRESS', 'Officer accepted citizen dispute and resumed field work')}
+            disabled={transitioning}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-all shadow-[0_0_15px_rgba(225,29,72,0.4)]"
+          >
+            <Play size={14} /> Accept Dispute &amp; Start Work
+          </button>
+        )}
+        {isReopened && (
+          <button
+            onClick={() => onTransition('IN_PROGRESS', 'Officer started field work on reopened complaint')}
+            disabled={transitioning}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-all shadow-[0_0_12px_rgba(217,119,6,0.35)]"
+          >
+            <Play size={14} /> Start Work
+          </button>
+        )}
         {isInProgress && (
           <Link
             href={`/officer/complaints/${complaintId}/resolve`}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-[0_0_12px_rgba(147,51,234,0.35)]"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-[0_0_12px_rgba(147,51,234,0.35)] cursor-pointer"
           >
             <ArrowRightIcon size={14} /> Submit Resolution Evidence
           </Link>

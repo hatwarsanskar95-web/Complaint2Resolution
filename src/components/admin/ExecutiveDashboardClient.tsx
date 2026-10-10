@@ -52,31 +52,44 @@ export default function ExecutiveDashboardClient({
   useEffect(() => { setNearSla(initialNearSla) }, [initialNearSla])
   useEffect(() => { setWorkload(initialDepartmentWorkload) }, [initialDepartmentWorkload])
 
+  const fetchLatestData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/metrics/overview')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.metrics) setMetrics(data.metrics)
+        if (data.nearSlaBreaches) setNearSla(data.nearSlaBreaches)
+        if (data.departmentWorkload) setWorkload(data.departmentWorkload)
+      }
+    } catch (err) {
+      console.warn('[Admin Dashboard] Realtime client fetch error:', err)
+    }
+    router.refresh()
+  }, [router])
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
-    router.refresh()
-    await new Promise((r) => setTimeout(r, 800))
+    await fetchLatestData()
     setRefreshing(false)
-  }, [router])
+  }, [fetchLatestData])
 
   // ── Supabase Realtime ──
   // Subscribes to ALL complaint changes (admin sees everything).
-  // On any event, triggers router.refresh() which re-fetches the Server Component
-  // and pushes updated metrics/workload/nearSla props down to this client.
+  // On any event, fetches fresh metrics immediately and triggers router.refresh().
   useRealtimeComplaints({
     channelName: 'admin-executive-dashboard',
     departmentId: null, // null = subscribe to all departments
     onRefresh: () => {
       setRealtimeOk(true)
-      router.refresh()
+      fetchLatestData()
     },
   })
 
-  // Fallback poll every 5 minutes
+  // Fallback poll every 2 minutes
   useEffect(() => {
-    const id = setInterval(() => router.refresh(), 5 * 60 * 1000)
+    const id = setInterval(() => fetchLatestData(), 2 * 60 * 1000)
     return () => clearInterval(id)
-  }, [router])
+  }, [fetchLatestData])
 
   const maxWorkload = Math.max(...workload.map((w) => w.count), 1)
 

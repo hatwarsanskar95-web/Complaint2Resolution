@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, MapPin, Clock, Calendar, User, Building2,
   CheckCircle2, AlertCircle, AlertTriangle, Sparkles, FileText, Download, Share2,
-  Check, Circle, RefreshCw, X, Camera, Send, Loader2, Eye
+  Check, Circle, RefreshCw, X, Camera, Send, Loader2, Eye, Upload
 } from 'lucide-react'
 import {
   Complaint, ComplaintImage, ComplaintStatusHistory,
@@ -14,6 +14,7 @@ import {
 } from '@/lib/types'
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/ui/motion'
 import { toast } from '@/context/ToastContext'
+import { createClient } from '@/lib/supabase/client'
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -179,9 +180,38 @@ export default function ComplaintDetailView({
     }
   }
 
+  const supabase = createClient()
+  const [uploadingDispute, setUploadingDispute] = useState(false)
+
+  const handleDisputePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingDispute(true)
+    setActionError(null)
+    const toastId = toast.loading('Uploading dispute photo...')
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `${c.id}/dispute_${Date.now()}.${ext}`
+      const { error: uploadErr } = await supabase.storage.from('complaint-images').upload(path, file)
+      if (uploadErr) throw uploadErr
+      const { data: { publicUrl } } = supabase.storage.from('complaint-images').getPublicUrl(path)
+      setDisputePhotoUrl(publicUrl)
+      toast.update(toastId, { type: 'success', message: 'Dispute photo uploaded.' })
+    } catch (err: any) {
+      toast.update(toastId, { type: 'error', message: err?.message || 'Upload failed' })
+      setActionError(err?.message || 'Upload failed')
+    } finally {
+      setUploadingDispute(false)
+    }
+  }
+
   const handleDisputeResolution = async () => {
     if (!disputeReason.trim()) {
-      setActionError('Please enter the reason for reporting this issue as unresolved.')
+      setActionError('Please describe what is still broken or why the issue is unresolved.')
+      return
+    }
+    if (!disputePhotoUrl) {
+      setActionError('A current photo showing the unresolved issue is mandatory before submitting a dispute.')
       return
     }
 
@@ -193,8 +223,8 @@ export default function ComplaintDetailView({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          dispute_reason: disputeReason,
-          dispute_photo_url: disputePhotoUrl || 'https://images.unsplash.com/photo-1584467735871-8e85353a8413?q=80&w=800',
+          dispute_reason: disputeReason.trim(),
+          dispute_photo_url: disputePhotoUrl,
         }),
       })
 
@@ -203,10 +233,10 @@ export default function ComplaintDetailView({
 
       toast.update(toastId, {
         type: 'success',
-        message: `Dispute submitted. Complaint ${c.permanent_id} has been reopened for officer resolution.`,
+        message: `Dispute submitted. Complaint ${c.permanent_id} has been returned for officer resolution.`,
       })
       setShowDisputeModal(false)
-      setCurrentStatus('REOPENED')
+      setCurrentStatus('DISPUTED')
       router.push('/citizen/complaints')
     } catch (err: any) {
       toast.update(toastId, { type: 'error', message: err.message || 'Failed to submit dispute' })
@@ -643,7 +673,9 @@ export default function ComplaintDetailView({
               </p>
 
               <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Dispute Reason / What is still broken?</label>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">
+                  Dispute Reason / What is still broken? <span className="text-rose-400">*Required</span>
+                </label>
                 <textarea
                   rows={3}
                   placeholder="The pothole was only partially filled and water is still accumulating..."
@@ -655,15 +687,52 @@ export default function ComplaintDetailView({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Current Photo Evidence URL (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="https://..."
-                  value={disputePhotoUrl}
-                  onChange={(e) => setDisputePhotoUrl(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder:text-slate-600 outline-none focus:border-rose-500"
-                />
+                <label className="text-xs font-bold text-slate-200 block mb-1">
+                  Latest Photo Evidence <span className="text-rose-400">*Required (Exactly 1 photo)</span>
+                </label>
+                <p className="text-[10px] text-slate-400 mb-2">Upload a new photo showing the current unresolved condition.</p>
+
+                {disputePhotoUrl ? (
+                  <div className="relative group w-full h-36 rounded-xl overflow-hidden border border-rose-500/50 bg-slate-950">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={disputePhotoUrl} alt="Dispute evidence preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setDisputePhotoUrl('')}
+                      className="absolute top-2 right-2 p-1.5 bg-rose-600/90 rounded-full text-white hover:bg-rose-500 cursor-pointer shadow"
+                    >
+                      <X size={14} />
+                    </button>
+                    <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      ✓ Photo Uploaded
+                    </span>
+                  </div>
+                ) : (
+                  <label className={`h-28 w-full flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-rose-500/40 bg-slate-950/60 cursor-pointer hover:bg-rose-950/10 transition-colors ${uploadingDispute ? 'opacity-60' : ''}`}>
+                    {uploadingDispute ? (
+                      <span className="w-5 h-5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Upload size={20} className="text-rose-400" />
+                    )}
+                    <span className="text-xs text-slate-300 font-semibold">{uploadingDispute ? 'Uploading...' : 'Click to upload current photo evidence'}</span>
+                    <span className="text-[10px] text-slate-500">JPG, PNG, WEBP (Exactly 1 file)</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleDisputePhotoUpload}
+                      disabled={uploadingDispute}
+                      className="hidden"
+                    />
+                  </label>
+                )}
               </div>
+
+              {!disputePhotoUrl && (
+                <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/60 text-[11px] text-amber-300 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+                  <span>Submission requires 1 uploaded photo showing the unresolved issue.</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
@@ -677,11 +746,11 @@ export default function ComplaintDetailView({
               <button
                 type="button"
                 onClick={handleDisputeResolution}
-                disabled={submitting}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md flex items-center gap-1.5 disabled:opacity-50"
+                disabled={submitting || uploadingDispute || !disputePhotoUrl || !disputeReason.trim()}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-md flex items-center gap-1.5 cursor-pointer transition-all"
               >
                 {submitting ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={14} />}
-                <span>Reopen Complaint</span>
+                <span>Submit Dispute</span>
               </button>
             </div>
           </div>

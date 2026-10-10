@@ -3,16 +3,26 @@ import { redirect } from 'next/navigation'
 import { BarChart3, CheckCircle2, Clock, AlertTriangle, RotateCcw } from 'lucide-react'
 import { FadeIn, AnimatedNumber } from '@/components/ui/motion'
 import { getSlaStatus } from '@/lib/types'
+import { getOfficerContext } from '@/lib/auth'
 
 export default async function OfficerReportsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/officer/login')
+  const ctx = await getOfficerContext()
+  if (!ctx) redirect('/officer/login')
 
-  const { data: complaints } = await supabase
+  let query = supabase
     .from('complaints')
     .select('id, status, created_at, sla_start_time, sla_deadline')
 
+  if (['officer', 'dept_admin'].includes(ctx.role)) {
+    if (ctx.departmentId) {
+      query = query.eq('department_id', ctx.departmentId)
+    } else {
+      query = query.eq('department_id', '00000000-0000-0000-0000-000000000000')
+    }
+  }
+
+  const { data: complaints } = await query
   const list = complaints || []
   const total = list.length
   const resolvedList = list.filter(c => ['RESOLVED', 'CLOSED'].includes(c.status))

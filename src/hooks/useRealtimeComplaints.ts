@@ -1,17 +1,10 @@
 /**
  * useRealtimeComplaints — shared Supabase Realtime hook
  *
- * Subscribes to INSERT/UPDATE events on the `complaints` table.
- * On any change, calls `onRefresh()` so the component can re-fetch
- * authoritative data from the server (never blindly trusts payload,
- * preserving RLS authorization semantics).
- *
- * Usage:
- *   useRealtimeComplaints({ channelName: 'officer-queue', onRefresh: router.refresh })
- *
- * Security: The hook only triggers a refresh call. The actual data load
- * always goes through the server (router.refresh → Server Component re-render)
- * or an authenticated fetch. RLS is enforced server-side.
+ * Subscribes to INSERT/UPDATE/DELETE events on `complaints`, `citizen_verifications`,
+ * and `resolution_submissions` tables in Supabase Realtime.
+ * On any relevant change, invokes `onRefresh()` so the component can update state
+ * or re-fetch authoritative data from the server.
  */
 
 'use client'
@@ -22,12 +15,13 @@ import { createClient } from '@/lib/supabase/client'
 interface UseRealtimeComplaintsOptions {
   /** Unique channel name — avoids duplicate subscriptions across components */
   channelName: string
-  /** Called when a relevant complaint INSERT or UPDATE event fires */
-  onRefresh: () => void
+  /** Called when a relevant complaint INSERT, UPDATE, or DELETE event fires */
+  onRefresh: (payload?: any) => void
   /**
-   * Optional department_id filter. If provided the subscription filters
-   * Postgres Changes to only that department, reducing noise.
-   * If undefined/null, listens to all changes (for super_admin or citizen).
+   * Optional department_id filter.
+   * If provided, listens to changes and verifies if the event pertains to this department
+   * (or is an unassigned/new complaint), preventing missed events.
+   * If undefined/null, listens to all changes (for admin or citizen).
    */
   departmentId?: string | null
 }
@@ -37,7 +31,6 @@ export function useRealtimeComplaints({
   onRefresh,
   departmentId,
 }: UseRealtimeComplaintsOptions) {
-  // Stable ref so the effect doesn't re-run when onRefresh identity changes
   const onRefreshRef = useRef(onRefresh)
   useEffect(() => {
     onRefreshRef.current = onRefresh
@@ -45,11 +38,6 @@ export function useRealtimeComplaints({
 
   useEffect(() => {
     const supabase = createClient()
-
-    // Build filter if a specific department is scoped
-    const filter = departmentId
-      ? `department_id=eq.${departmentId}`
-      : undefined
 
     const channel = supabase
       .channel(channelName, {
@@ -61,25 +49,61 @@ export function useRealtimeComplaints({
           event: '*', // INSERT, UPDATE, DELETE
           schema: 'public',
           table: 'complaints',
-          ...(filter ? { filter } : {}),
         },
-        (_payload) => {
-          // Do NOT use payload data directly — always re-fetch via server
-          // to ensure RLS is applied and data is authoritative.
-          onRefreshRef.current()
+        (payload) => {
+          const newDept = payload.new ? (payload.new as any).department_id : null
+          const oldDept = payload.old ? (payload.old as any).department_id : null
+
+          if (!departmentId) {
+            // Admin / Super Admin scope -> trigger refresh for any complaint change
+            onRefreshRef.current(payload)
+          } else {
+            // Officer scope -> trigger refresh if new or old matches departmentId or is unassigned
+            if (
+              newDept === departmentId ||
+              oldDept === departmentId ||
+              newDept === null ||
+              newDept === undefined ||
+              !newDept
+            ) {
+              onRefreshRef.current(payload)
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'citizen_verifications',
+        },
+        (payload) => {
+          onRefreshRef.current(payload)
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'resolution_submissions',
+        },
+        (payload) => {
+          onRefreshRef.current(payload)
         }
       )
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          // On channel error, attempt a refresh so the UI isn't permanently stale
-          setTimeout(() => onRefreshRef.current(), 2000)
+        if (status === 'SUBSCRIBED') {
+          // Connected successfully
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // On disconnect/error, schedule a safe refetch fallback
+          setTimeout(() => onRefreshRef.current(), 1500)
         }
       })
 
     return () => {
       supabase.removeChannel(channel)
     }
-    // Only departmentId and channelName affect the subscription topology
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName, departmentId])
 }

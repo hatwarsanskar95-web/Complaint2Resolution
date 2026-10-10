@@ -26,7 +26,7 @@ export default async function OfficerResolvePage({
   if (!complaint) notFound()
 
   // Block if not in a workable state
-  const workable = ['IN_PROGRESS', 'REOPENED', 'ASSIGNED', 'RECEIVED', 'SUBMITTED']
+  const workable = ['IN_PROGRESS', 'REOPENED', 'ASSIGNED', 'RECEIVED', 'SUBMITTED', 'DISPUTED']
   if (!workable.includes(complaint.status)) {
     redirect(`/officer/complaints/${id}`)
   }

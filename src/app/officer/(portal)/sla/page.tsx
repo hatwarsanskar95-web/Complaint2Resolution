@@ -3,19 +3,29 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Clock, AlertTriangle, CheckCircle2, ArrowRight } from 'lucide-react'
 import { Complaint, STATUS_LABELS, getSlaStatus } from '@/lib/types'
+import { getOfficerContext } from '@/lib/auth'
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/ui/motion'
 
 export default async function OfficerSlaTrackerPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/officer/login')
+  const ctx = await getOfficerContext()
+  if (!ctx) redirect('/officer/login')
 
-  const { data: complaints } = await supabase
+  let query = supabase
     .from('complaints')
     .select('*, departments(name, code)')
     .not('status', 'eq', 'CLOSED')
     .order('sla_deadline', { ascending: true })
 
+  if (['officer', 'dept_admin'].includes(ctx.role)) {
+    if (ctx.departmentId) {
+      query = query.eq('department_id', ctx.departmentId)
+    } else {
+      query = query.eq('department_id', '00000000-0000-0000-0000-000000000000')
+    }
+  }
+
+  const { data: complaints } = await query
   const list = (complaints ?? []) as Complaint[]
 
   return (

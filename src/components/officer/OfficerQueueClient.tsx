@@ -81,8 +81,13 @@ export default function OfficerQueueClient({ officerName, departmentName, office
   const [refreshing, setRefreshing] = useState(false)
   const [realtimeOk, setRealtimeOk] = useState(true)
   const supabase = createClient()
+  const [queuesState, setQueuesState] = useState<Queues>(queues)
+  const [metricsState, setMetricsState] = useState<Metrics>(metrics)
 
-  const currentList = queues[activeTab]
+  useEffect(() => { setQueuesState(queues) }, [queues])
+  useEffect(() => { setMetricsState(metrics) }, [metrics])
+
+  const currentList = queuesState[activeTab]
 
   const filtered = useMemo(() => {
     if (!search.trim()) return currentList
@@ -95,33 +100,85 @@ export default function OfficerQueueClient({ officerName, departmentName, office
     )
   }, [currentList, search])
 
+  // Fetch latest queues directly for instant client update
+  const fetchLatestQueues = useCallback(async () => {
+    try {
+      let query = supabase
+        .from('complaints')
+        .select('*, departments(name, code)')
+        .order('created_at', { ascending: false })
+
+      if (departmentId) {
+        query = query.eq('department_id', departmentId)
+      }
+
+      const { data: complaints } = await query
+      if (complaints) {
+        const all = complaints as ComplaintWithDept[]
+        const qNew = all.filter((c) => ['RECEIVED', 'SUBMITTED'].includes(c.status))
+        const qAssigned = all.filter((c) => c.status === 'ASSIGNED' && c.assigned_officer_id === officerId)
+        const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED', 'DISPUTED'].includes(c.status))
+        const qNearSla = all.filter((c) => {
+          if (!c.sla_deadline || !c.sla_start_time) return false
+          const { percent } = getSlaStatus(c.sla_deadline, c.sla_start_time)
+          return percent >= 75 && percent < 100 && !['RESOLVED', 'CLOSED'].includes(c.status)
+        })
+        const qBreached = all.filter((c) => {
+          if (!c.sla_deadline || !c.sla_start_time) return false
+          const { label } = getSlaStatus(c.sla_deadline, c.sla_start_time)
+          return label === 'breached' && !['RESOLVED', 'CLOSED'].includes(c.status)
+        })
+        const qPendingVerification = all.filter((c) =>
+          ['RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'CITIZEN_VERIFICATION'].includes(c.status)
+        )
+        const qClosed = all.filter((c) => ['CLOSED', 'RESOLVED'].includes(c.status))
+
+        const totalActive = all.filter((c) => !['CLOSED', 'RESOLVED'].includes(c.status)).length
+        const totalClosed = qClosed.length
+        const slaBreachedCount = qBreached.length
+        const pendingCount = qNew.length
+
+        setQueuesState({
+          new: qNew,
+          assigned: qAssigned,
+          inProgress: qInProgress,
+          nearSla: qNearSla,
+          breached: qBreached,
+          pendingVerification: qPendingVerification,
+          closed: qClosed,
+        })
+        setMetricsState({ totalActive, totalClosed, slaBreachedCount, pendingCount })
+      }
+    } catch (err) {
+      console.warn('[Officer Queue] Client fetch error:', err)
+    }
+    router.refresh()
+  }, [departmentId, officerId, router, supabase])
+
   // Manual refresh
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
-    router.refresh()
-    await new Promise((r) => setTimeout(r, 800))
+    await fetchLatestQueues()
     setRefreshing(false)
-  }, [router])
+  }, [fetchLatestQueues])
 
   // ── Supabase Realtime subscription ──
-  // Scoped to the officer's department (or all if super_admin / no dept).
-  // On any complaint change, triggers router.refresh() to re-fetch from server
-  // so RLS is always enforced and data is authoritative.
+  // Scoped to the officer's department.
+  // On any complaint change, re-fetches latest queues and metrics.
   useRealtimeComplaints({
     channelName: `officer-queue-${officerId}`,
     departmentId: departmentId ?? undefined,
     onRefresh: () => {
       setRealtimeOk(true)
-      router.refresh()
+      fetchLatestQueues()
     },
   })
 
-  // ── Fallback poll every 5 minutes ──
-  // Recovers from missed Realtime events (e.g. tab was backgrounded)
+  // ── Fallback poll every 2 minutes ──
   useEffect(() => {
-    const id = setInterval(() => router.refresh(), FALLBACK_POLL_MS)
+    const id = setInterval(() => fetchLatestQueues(), 2 * 60 * 1000)
     return () => clearInterval(id)
-  }, [router])
+  }, [fetchLatestQueues])
 
   // Claim a complaint (New queue → ASSIGNED)
   async function handleClaim(complaint: ComplaintWithDept) {

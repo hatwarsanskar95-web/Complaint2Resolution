@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { getSlaStatus, Complaint } from '@/lib/types'
+import { getOfficerContext } from '@/lib/auth'
 import OfficerQueueClient from '@/components/officer/OfficerQueueClient'
 
 // ============================================================
@@ -13,33 +14,28 @@ export default async function OfficerDashboard() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/officer/login')
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, role')
-    .eq('id', user.id)
-    .single()
+  // Resolve officer context & department mapping
+  const ctx = await getOfficerContext()
+  if (!ctx) redirect('/officer/login')
 
-  // Resolve department for filtering
-  const { data: od } = await supabase
-    .from('officer_departments')
-    .select('department_id, departments(name, code)')
-    .eq('profile_id', user.id)
-    .single()
+  const departmentId = ctx.departmentId
+  const departmentName = ctx.department?.name ?? 'Assigned Department'
+  const officerName = ctx.profile?.full_name ?? 'Officer'
 
-  const departmentId = od?.department_id ?? null
-  const deptRaw = od?.departments as { name: string; code: string } | null | undefined
-  const departmentName = deptRaw?.name ?? 'All Departments'
-  const officerName = profile?.full_name ?? 'Officer'
-
-  // Fetch all complaints for this officer's department (Phase 15 authorization)
+  // Fetch all complaints for this officer's authorized department
   let query = supabase
     .from('complaints')
     .select('*, departments(name, code)')
     .order('created_at', { ascending: false })
 
-  // Dept-filter: officers only see their dept, super_admins see all
-  if (profile?.role === 'officer' && departmentId) {
-    query = query.eq('department_id', departmentId)
+  // Dept-filter: officers and dept_admins see ONLY their department's complaints
+  if (['officer', 'dept_admin'].includes(ctx.role)) {
+    if (departmentId) {
+      query = query.eq('department_id', departmentId)
+    } else {
+      // If officer has no assigned department ID, return no complaints
+      query = query.eq('department_id', '00000000-0000-0000-0000-000000000000')
+    }
   }
 
   const { data: complaints } = await query
@@ -48,7 +44,7 @@ export default async function OfficerDashboard() {
   // ── Build 7 queues ──
   const qNew = all.filter((c) => ['RECEIVED', 'SUBMITTED'].includes(c.status))
   const qAssigned = all.filter((c) => c.status === 'ASSIGNED' && c.assigned_officer_id === user.id)
-  const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED'].includes(c.status))
+  const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED', 'DISPUTED'].includes(c.status))
   const qNearSla = all.filter((c) => {
     if (!c.sla_deadline || !c.sla_start_time) return false
     const { percent } = getSlaStatus(c.sla_deadline, c.sla_start_time)

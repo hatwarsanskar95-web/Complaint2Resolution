@@ -80,6 +80,12 @@ export async function POST(
 
     if (subErr) throw subErr
 
+    // Also record before/after photos into complaint_images history
+    await supabase.from('complaint_images').insert([
+      { complaint_id: id, image_url: before_photo_url, image_type: 'before' },
+      { complaint_id: id, image_url: after_photo_url, image_type: 'after' }
+    ])
+
     // Transition complaint to RESOLUTION_SUBMITTED
     const { error: updErr } = await supabase
       .from('complaints')
