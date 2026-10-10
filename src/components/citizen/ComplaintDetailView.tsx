@@ -352,42 +352,6 @@ export default function ComplaintDetailView({
               )
             })}
           </div>
-
-          {/* EMBEDDED CITIZEN VERIFICATION ACTION BOX INSIDE STEPPER CARD */}
-          {['RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'CITIZEN_VERIFICATION', 'RESOLVED'].includes(currentStatus) && (
-            <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-emerald-950/80 via-teal-950/80 to-slate-900 border border-emerald-700/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <AlertCircle size={16} className="text-emerald-400 animate-pulse" />
-                  <h3 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Citizen Resolution Verification Required</h3>
-                </div>
-                <p className="text-[11px] text-slate-300">
-                  Municipal officer submitted work proof. Inspect solution evidence and confirm if your issue is resolved.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                <button
-                  onClick={() => setShowSolutionModal(true)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition-all flex items-center gap-1"
-                >
-                  <Eye size={13} /> View Solution
-                </button>
-                <button
-                  onClick={() => setShowConfirmModal(true)}
-                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1"
-                >
-                  <CheckCircle2 size={13} /> [ Confirm Resolution ]
-                </button>
-                <button
-                  onClick={() => setShowDisputeModal(true)}
-                  className="px-3.5 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-200 font-bold text-xs transition-all flex items-center gap-1"
-                >
-                  <AlertTriangle size={13} /> [ Report Unresolved Issue ]
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </FadeIn>
 
@@ -791,75 +755,14 @@ export default function ComplaintDetailView({
               </div>
             </div>
 
-            {/* Satisfaction Rating & Confirmation */}
-            <div className="pt-3 border-t border-slate-800 space-y-3">
-              <p className="text-xs font-semibold text-slate-200">
-                Are you satisfied with the work completed for complaint <strong>{c.permanent_id}</strong>?
-              </p>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Satisfaction Rating (1 to 5 Stars)</label>
-                <div className="flex gap-2">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setRating(star)}
-                      className={`w-9 h-9 rounded-lg font-bold text-xs transition-all ${
-                        rating >= star ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      ★ {star}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-400 block mb-1">Optional Feedback</label>
-                <textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="Share feedback on resolution..."
-                  rows={2}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              {actionError && (
-                <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-800 text-xs text-rose-300">
-                  {actionError}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowSolutionModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowSolutionModal(false); setShowDisputeModal(true) }}
-                  className="px-4 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-200 text-xs font-bold transition-all"
-                >
-                  Report Unresolved
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={async () => {
-                    await handleConfirmResolution()
-                    setShowSolutionModal(false)
-                  }}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                  <span>Confirm &amp; Close Ticket</span>
-                </button>
-              </div>
+            <div className="flex items-center justify-end pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowSolutionModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
