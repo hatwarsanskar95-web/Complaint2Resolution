@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 // POST /api/citizen/complaints/[id]/confirm-resolution — Phase 23
 export async function POST(
@@ -8,6 +8,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params
+    // Use session client to authenticate the citizen
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -17,7 +18,7 @@ export async function POST(
       feedback_comment?: string
     }
 
-    // Fetch complaint
+    // Fetch complaint using session client (citizen can SELECT own complaints via RLS)
     const { data: complaint } = await supabase
       .from('complaints')
       .select('id, status, citizen_id, permanent_id')
@@ -35,8 +36,11 @@ export async function POST(
       return NextResponse.json({ error: `Cannot confirm: complaint is in ${complaint.status} state` }, { status: 422 })
     }
 
+    // Use service role client to bypass RLS for INSERT/UPDATE operations
+    const admin = createServiceRoleClient()
+
     // Save citizen_verifications record (satisfied = true)
-    const { error: verifyErr } = await supabase.from('citizen_verifications').insert({
+    const { error: verifyErr } = await admin.from('citizen_verifications').insert({
       complaint_id: id,
       citizen_id: user.id,
       is_satisfied: true,
@@ -47,9 +51,11 @@ export async function POST(
     })
     if (verifyErr) throw verifyErr
 
-    // Transition to CLOSED
-    await supabase.from('complaints').update({ status: 'CLOSED' }).eq('id', id)
-    await supabase.from('complaint_status_history').insert({
+    // Transition to CLOSED (service role bypasses UPDATE RLS)
+    const { error: updateErr } = await admin.from('complaints').update({ status: 'CLOSED' }).eq('id', id)
+    if (updateErr) throw updateErr
+
+    await admin.from('complaint_status_history').insert({
       complaint_id: id,
       old_status: complaint.status,
       new_status: 'CLOSED',

@@ -13,6 +13,7 @@ import {
   ComplaintAiAnalysis, STATUS_LABELS, PRIORITY_LABELS, getSlaStatus, ComplaintStatus
 } from '@/lib/types'
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/ui/motion'
+import { toast } from '@/context/ToastContext'
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -76,6 +77,7 @@ export default function ComplaintDetailView({
   resolutionSubmission,
 }: ComplaintDetailViewProps) {
   const router = useRouter()
+  const [currentStatus, setCurrentStatus] = useState<string>(c.status)
   const originalImgs = imgs.filter(i => i.image_type === 'original')
   const resolutionImgs = imgs.filter(i => ['before', 'after', 'dispute'].includes(i.image_type))
 
@@ -90,7 +92,7 @@ export default function ComplaintDetailView({
   const [submitting, setSubmitting] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // Determine stage status for the 8-Stage Stepper
+  // Determine stage status for the 7-Stage Stepper
   const getStageInfo = (stageNumber: number) => {
     const statusOrder: Record<string, number> = {
       SUBMITTED: 1,
@@ -98,17 +100,17 @@ export default function ComplaintDetailView({
       ASSIGNED: 3,
       IN_PROGRESS: 4,
       RESOLUTION_SUBMITTED: 5,
-      AI_VERIFICATION: 6,
+      AI_VERIFICATION: 5,
+      CITIZEN_VERIFICATION: 6,
       RESOLVED: 6,
-      CITIZEN_VERIFICATION: 7,
-      CLOSED: 8,
+      CLOSED: 7,
       DISPUTED: 4, // reopened returns to active work order
       REOPENED: 4,
     }
 
-    const currentStageNum = statusOrder[c.status] || 1
-    const isCompleted = currentStageNum > stageNumber || c.status === 'CLOSED'
-    const isCurrent = currentStageNum === stageNumber && c.status !== 'CLOSED'
+    const currentStageNum = statusOrder[currentStatus] || 1
+    const isCompleted = currentStageNum > stageNumber || currentStatus === 'CLOSED'
+    const isCurrent = currentStageNum === stageNumber && currentStatus !== 'CLOSED'
     const isPending = currentStageNum < stageNumber
 
     // Look for matching history timestamp
@@ -125,12 +127,9 @@ export default function ComplaintDetailView({
       const match = timeline.find(t => t.new_status === 'RESOLUTION_SUBMITTED')
       if (match) stageTimestamp = match.created_at
     } else if (stageNumber === 6) {
-      const match = timeline.find(t => t.new_status === 'AI_VERIFICATION' || t.new_status === 'RESOLVED')
+      const match = timeline.find(t => t.new_status === 'CITIZEN_VERIFICATION' || t.new_status === 'RESOLVED' || t.new_status === 'AI_VERIFICATION')
       if (match) stageTimestamp = match.created_at
     } else if (stageNumber === 7) {
-      const match = timeline.find(t => t.new_status === 'CITIZEN_VERIFICATION')
-      if (match) stageTimestamp = match.created_at
-    } else if (stageNumber === 8) {
       const match = timeline.find(t => t.new_status === 'CLOSED')
       if (match) stageTimestamp = match.created_at
     }
@@ -144,14 +143,14 @@ export default function ComplaintDetailView({
     { num: 3, title: 'Department Assigned', desc: 'Routed to responsible municipal authority' },
     { num: 4, title: 'Officer Started Work', desc: 'Field officer dispatched & working' },
     { num: 5, title: 'Resolution Evidence Submitted', desc: 'Officer submitted before/after proof' },
-    { num: 6, title: 'AI Verification', desc: 'Computer vision & data audit pass' },
-    { num: 7, title: 'Citizen Verification', desc: 'Citizen inspects & confirms resolution' },
-    { num: 8, title: 'Complaint Closed', desc: 'Official grievance closed & archived' },
+    { num: 6, title: 'Citizen Verification', desc: 'Citizen inspects & confirms resolution' },
+    { num: 7, title: 'Complaint Closed', desc: 'Official grievance closed & archived' },
   ]
 
   const handleConfirmResolution = async () => {
     setSubmitting(true)
     setActionError(null)
+    const toastId = toast.loading('Confirming complaint resolution...')
     try {
       const res = await fetch(`/api/citizen/complaints/${c.id}/confirm-resolution`, {
         method: 'POST',
@@ -165,9 +164,15 @@ export default function ComplaintDetailView({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to confirm resolution')
 
+      toast.update(toastId, {
+        type: 'success',
+        message: `Resolution confirmed! Complaint ${c.permanent_id} has been marked as Closed.`,
+      })
       setShowConfirmModal(false)
-      router.refresh()
+      setCurrentStatus('CLOSED')
+      router.push('/citizen/complaints')
     } catch (err: any) {
+      toast.update(toastId, { type: 'error', message: err.message || 'Failed to confirm' })
       setActionError(err.message)
     } finally {
       setSubmitting(false)
@@ -182,6 +187,7 @@ export default function ComplaintDetailView({
 
     setSubmitting(true)
     setActionError(null)
+    const toastId = toast.loading('Submitting dispute report...')
     try {
       const res = await fetch(`/api/citizen/complaints/${c.id}/dispute`, {
         method: 'POST',
@@ -195,9 +201,15 @@ export default function ComplaintDetailView({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to submit dispute')
 
+      toast.update(toastId, {
+        type: 'success',
+        message: `Dispute submitted. Complaint ${c.permanent_id} has been reopened for officer resolution.`,
+      })
       setShowDisputeModal(false)
-      router.refresh()
+      setCurrentStatus('REOPENED')
+      router.push('/citizen/complaints')
     } catch (err: any) {
+      toast.update(toastId, { type: 'error', message: err.message || 'Failed to submit dispute' })
       setActionError(err.message)
     } finally {
       setSubmitting(false)
@@ -231,7 +243,7 @@ export default function ComplaintDetailView({
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3 flex-wrap">
             <code className="text-xl sm:text-2xl font-mono font-extrabold text-cyan-400 tracking-wider">{c.permanent_id}</code>
-            <StatusBadge status={c.status} />
+            <StatusBadge status={currentStatus} />
             <span className={`badge badge-${c.priority?.toLowerCase() ?? 'medium'}`}>
               {PRIORITY_LABELS[c.priority] ?? c.priority}
             </span>
@@ -243,7 +255,7 @@ export default function ComplaintDetailView({
       </FadeIn>
 
       {/* REOPENED / DISPUTED ALERT BANNER */}
-      {['REOPENED', 'DISPUTED'].includes(c.status) && (
+      {['REOPENED', 'DISPUTED'].includes(currentStatus) && (
         <FadeIn direction="up">
           <div className="p-4 rounded-2xl bg-rose-950/50 border border-rose-800/80 text-rose-200 flex items-start gap-3 shadow-lg">
             <RefreshCw size={20} className="text-rose-400 animate-spin mt-0.5 shrink-0" />
@@ -257,45 +269,13 @@ export default function ComplaintDetailView({
         </FadeIn>
       )}
 
-      {/* CITIZEN ACTION BANNER (When Awaiting Verification) */}
-      {['RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'CITIZEN_VERIFICATION', 'RESOLVED'].includes(c.status) && (
-        <FadeIn direction="up">
-          <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950 to-teal-950 border border-emerald-700/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <AlertCircle size={18} className="text-emerald-400 animate-bounce" />
-                <h3 className="text-sm font-bold text-emerald-300 uppercase tracking-wider">Resolution Verification Required</h3>
-              </div>
-              <p className="text-xs text-slate-300">
-                The municipal officer has submitted work completion evidence. Please confirm if your problem is solved.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setShowConfirmModal(true)}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
-              >
-                <CheckCircle2 size={14} /> [ Confirm Resolution ]
-              </button>
-              <button
-                onClick={() => setShowDisputeModal(true)}
-                className="px-4 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-200 font-bold text-xs transition-all flex items-center gap-1.5"
-              >
-                <AlertTriangle size={14} /> [ Report Unresolved Issue ]
-              </button>
-            </div>
-          </div>
-        </FadeIn>
-      )}
-
-      {/* 8-STAGE VERTICAL COMPLAINT PROGRESS STEPPER */}
+      {/* 7-STAGE VERTICAL COMPLAINT PROGRESS STEPPER */}
       <FadeIn direction="up" delay={0.05}>
         <div className="glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h2 className="text-xs sm:text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
               <Clock size={16} className="text-emerald-400" />
-              <span>8-Stage Complaint Progress Stepper</span>
+              <span>7-Stage Complaint Progress Stepper</span>
             </h2>
             <span className="text-[11px] font-mono text-cyan-400 font-bold">ID: {c.permanent_id}</span>
           </div>
@@ -303,6 +283,7 @@ export default function ComplaintDetailView({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
             {STAGES.map((stg) => {
               const { isCompleted, isCurrent, isPending, stageTimestamp } = getStageInfo(stg.num)
+              const isVerificationState = ['RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'CITIZEN_VERIFICATION', 'RESOLVED'].includes(currentStatus)
               return (
                 <div
                   key={stg.num}
@@ -345,6 +326,25 @@ export default function ComplaintDetailView({
                     </button>
                   )}
 
+                  {stg.num === 6 && (isCurrent || isVerificationState) && currentStatus !== 'CLOSED' && (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmModal(true)}
+                        className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-1 cursor-pointer w-full"
+                      >
+                        <CheckCircle2 size={11} /> Confirm Resolution
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowDisputeModal(true)}
+                        className="text-[10px] font-bold px-2 py-1 rounded bg-rose-950 hover:bg-rose-900 text-rose-200 border border-rose-800 transition-colors flex items-center justify-center gap-1 cursor-pointer w-full"
+                      >
+                        <AlertTriangle size={11} /> Report Unresolved
+                      </button>
+                    </div>
+                  )}
+
                   <div className="mt-3 pt-2 border-t border-slate-800/50 text-[10px] font-mono text-slate-400">
                     {stageTimestamp ? new Date(stageTimestamp).toLocaleDateString() : 'Waiting…'}
                   </div>
@@ -352,8 +352,45 @@ export default function ComplaintDetailView({
               )
             })}
           </div>
+
+          {/* EMBEDDED CITIZEN VERIFICATION ACTION BOX INSIDE STEPPER CARD */}
+          {['RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'CITIZEN_VERIFICATION', 'RESOLVED'].includes(currentStatus) && (
+            <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-emerald-950/80 via-teal-950/80 to-slate-900 border border-emerald-700/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={16} className="text-emerald-400 animate-pulse" />
+                  <h3 className="text-xs font-bold text-emerald-300 uppercase tracking-wider">Citizen Resolution Verification Required</h3>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  Municipal officer submitted work proof. Inspect solution evidence and confirm if your issue is resolved.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  onClick={() => setShowSolutionModal(true)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-semibold transition-all flex items-center gap-1"
+                >
+                  <Eye size={13} /> View Solution
+                </button>
+                <button
+                  onClick={() => setShowConfirmModal(true)}
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1"
+                >
+                  <CheckCircle2 size={13} /> [ Confirm Resolution ]
+                </button>
+                <button
+                  onClick={() => setShowDisputeModal(true)}
+                  className="px-3.5 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-200 font-bold text-xs transition-all flex items-center gap-1"
+                >
+                  <AlertTriangle size={13} /> [ Report Unresolved Issue ]
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </FadeIn>
+
 
       <div className="grid md:grid-cols-5 gap-6">
         {/* Left Column: Details & Evidence */}

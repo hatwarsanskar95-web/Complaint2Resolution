@@ -70,17 +70,17 @@ Return ONLY the report text, no headers, no markdown.`
     const reportText = response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
     if (!reportText.trim()) throw new Error('Gemini returned empty report')
 
-    // Save to resolution_reports table
+    // Save to resolution_reports table (upsert to handle re-generation for reopened complaints)
     const { data: saved, error: saveErr } = await supabase
       .from('resolution_reports')
-      .insert({
+      .upsert({
         complaint_id: id,
         officer_id: user.id,
         report_text: reportText,
         ai_generated_text: reportText,
         is_edited: false,
         confirmed_at: new Date().toISOString(),
-      })
+      }, { onConflict: 'complaint_id' })
       .select()
       .single()
 

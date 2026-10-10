@@ -39,8 +39,8 @@ export async function POST(
       .eq('id', user.id)
       .single()
 
-    if (profile?.role !== 'ADMIN' && profile?.role !== 'SUPERVISOR') {
-      return NextResponse.json({ error: 'Forbidden: Admin or Supervisor role required' }, { status: 403 })
+    if (!['dept_admin', 'super_admin'].includes(profile?.role ?? '')) {
+      return NextResponse.json({ error: 'Forbidden: Admin role required' }, { status: 403 })
     }
 
     const { data: complaint, error: compErr } = await supabase
@@ -97,8 +97,8 @@ export async function POST(
     await supabase.from('audit_logs').insert({
       user_id: user.id,
       action: `HUMAN_REVIEW_${action}`,
-      target_type: 'COMPLAINT',
-      target_id: id,
+      entity: 'COMPLAINT',
+      entity_id: id,
       details: {
         old_status: complaint.status,
         new_status: newStatus,

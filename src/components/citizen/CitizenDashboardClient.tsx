@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Camera,
   MapPin,
@@ -27,16 +28,15 @@ import {
 } from 'lucide-react'
 import { Complaint, ComplaintStatus, STATUS_LABELS, getSlaStatus } from '@/lib/types'
 import { FadeIn, StaggerContainer, StaggerItem } from '@/components/ui/motion'
-import {
-  getStoredCitizenLocation,
-  setStoredCitizenLocation,
-  CitizenLocationData,
-} from '@/components/citizen/CitizenLocationSync'
+import { getStoredCitizenLocation, setStoredCitizenLocation, CitizenLocationData } from '@/components/citizen/CitizenLocationSync'
 import { toast } from '@/context/ToastContext'
 import { useCitizenTheme } from '@/context/CitizenThemeContext'
+import { useRealtimeComplaints } from '@/hooks/useRealtimeComplaints'
 
 interface Props {
   complaints: Complaint[]
+  /** Citizen user ID — used to scope realtime subscription label */
+  citizenId?: string
 }
 
 type FilterTab = 'all' | 'active' | 'verification' | 'closed'
@@ -117,13 +117,23 @@ function SlaBar({ complaint, isDark }: { complaint: Complaint; isDark: boolean }
   )
 }
 
-export default function CitizenDashboardClient({ complaints }: Props) {
+export default function CitizenDashboardClient({ complaints, citizenId }: Props) {
   const { isDark } = useCitizenTheme()
+  const router = useRouter()
   const [location, setLocation] = useState<CitizenLocationData | null>(null)
   const [showLocationPopup, setShowLocationPopup] = useState(false)
   const [locating, setLocating] = useState(false)
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
+
+  // ── Supabase Realtime subscription for citizen complaints ──
+  // No departmentId filter — we want all complaints owned by this citizen.
+  // RLS on the server ensures the citizen only gets their own data on refresh.
+  useRealtimeComplaints({
+    channelName: `citizen-dashboard-${citizenId ?? 'unknown'}`,
+    departmentId: undefined, // don't filter by dept — citizen complaints span all depts
+    onRefresh: () => router.refresh(),
+  })
 
   useEffect(() => {
     const loc = getStoredCitizenLocation()

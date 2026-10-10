@@ -6,14 +6,16 @@ import { useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Inbox, User, Wrench, Clock,
   CheckCircle2, Archive, ArrowRight, MapPin, Search, Building2,
-  AlertTriangle, Sparkles, RefreshCw,
+  AlertTriangle, Sparkles, RefreshCw, Wifi, WifiOff,
 } from 'lucide-react'
 import { Complaint, STATUS_LABELS, PRIORITY_LABELS, getSlaStatus, ComplaintStatus, PriorityLevel } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from '@/context/ToastContext'
 import { FadeIn, StaggerContainer, StaggerItem, AnimatedNumber } from '@/components/ui/motion'
+import { useRealtimeComplaints } from '@/hooks/useRealtimeComplaints'
 
-const POLL_INTERVAL_SECONDS = 30
+// Fallback poll interval (ms) — used if realtime disconnects
+const FALLBACK_POLL_MS = 5 * 60 * 1000 // 5 minutes
 
 type ComplaintWithDept = Complaint & { departments?: { name: string; code: string } }
 
@@ -38,6 +40,8 @@ interface Props {
   officerName: string
   departmentName: string
   officerId: string
+  /** Department UUID — used to scope the Realtime subscription */
+  departmentId: string | null
   queues: Queues
   metrics: Metrics
 }
@@ -69,14 +73,13 @@ const PRIORITY_BADGE: Record<string, string> = {
   LOW:      'bg-slate-700/40 text-slate-300 border-slate-700',
 }
 
-export default function OfficerQueueClient({ officerName, departmentName, officerId, queues, metrics }: Props) {
+export default function OfficerQueueClient({ officerName, departmentName, officerId, departmentId, queues, metrics }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabKey>('new')
   const [search, setSearch] = useState('')
   const [claiming, setClaiming] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [countdown, setCountdown] = useState(POLL_INTERVAL_SECONDS)
-  const countdownRef = useRef(POLL_INTERVAL_SECONDS)
+  const [realtimeOk, setRealtimeOk] = useState(true)
   const supabase = createClient()
 
   const currentList = queues[activeTab]
@@ -92,28 +95,32 @@ export default function OfficerQueueClient({ officerName, departmentName, office
     )
   }, [currentList, search])
 
-  // Manual + auto-poll refresh
+  // Manual refresh
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     router.refresh()
-    countdownRef.current = POLL_INTERVAL_SECONDS
-    setCountdown(POLL_INTERVAL_SECONDS)
-    await new Promise((r) => setTimeout(r, 600))
+    await new Promise((r) => setTimeout(r, 800))
     setRefreshing(false)
   }, [router])
 
-  // Countdown tick and auto-refresh every POLL_INTERVAL_SECONDS
+  // ── Supabase Realtime subscription ──
+  // Scoped to the officer's department (or all if super_admin / no dept).
+  // On any complaint change, triggers router.refresh() to re-fetch from server
+  // so RLS is always enforced and data is authoritative.
+  useRealtimeComplaints({
+    channelName: `officer-queue-${officerId}`,
+    departmentId: departmentId ?? undefined,
+    onRefresh: () => {
+      setRealtimeOk(true)
+      router.refresh()
+    },
+  })
+
+  // ── Fallback poll every 5 minutes ──
+  // Recovers from missed Realtime events (e.g. tab was backgrounded)
   useEffect(() => {
-    const tick = setInterval(() => {
-      countdownRef.current -= 1
-      setCountdown(countdownRef.current)
-      if (countdownRef.current <= 0) {
-        countdownRef.current = POLL_INTERVAL_SECONDS
-        setCountdown(POLL_INTERVAL_SECONDS)
-        router.refresh()
-      }
-    }, 1000)
-    return () => clearInterval(tick)
+    const id = setInterval(() => router.refresh(), FALLBACK_POLL_MS)
+    return () => clearInterval(id)
   }, [router])
 
   // Claim a complaint (New queue → ASSIGNED)
@@ -158,15 +165,21 @@ export default function OfficerQueueClient({ officerName, departmentName, office
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Live Refresh Button + Countdown */}
+            {/* Realtime live indicator */}
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${
+              realtimeOk ? 'bg-emerald-950/40 border-emerald-500/25 text-emerald-400' : 'bg-amber-950/40 border-amber-500/25 text-amber-400'
+            }`}>
+              {realtimeOk ? <Wifi size={12} /> : <WifiOff size={12} />}
+              {realtimeOk ? 'Live' : 'Reconnecting…'}
+            </div>
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              title={`Auto-refreshes in ${countdown}s. Click to refresh now.`}
+              title="Refresh complaints queue"
               className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-700 hover:border-emerald-500/50 text-xs text-slate-300 hover:text-emerald-400 font-semibold transition-all disabled:opacity-60 cursor-pointer"
             >
               <RefreshCw size={13} className={refreshing ? 'animate-spin text-emerald-400' : ''} />
-              {refreshing ? 'Refreshing…' : `Refresh (${countdown}s)`}
+              {refreshing ? 'Refreshing…' : 'Refresh'}
             </button>
             <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/50 border border-emerald-500/25 text-xs text-emerald-400 font-semibold">
               <Building2 size={13} />

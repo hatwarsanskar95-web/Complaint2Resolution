@@ -4,7 +4,7 @@
 // INVARIANT: NEVER generates a new CR-ID. Reuses same complaint.
 // ============================================================
 
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getGeminiClient, GEMINI_DEFAULT_MODEL } from '@/lib/gemini'
 import { z } from 'zod'
 
@@ -33,7 +33,8 @@ export async function analyzeDispute(complaintId: string, disputeReason: string)
   reasoning: string
   newStatus: string
 }> {
-  const supabase = await createClient()
+  // Use service role client — called asynchronously, needs to bypass RLS for status updates
+  const supabase = createServiceRoleClient()
 
   const [{ data: complaint }, { data: submission }, { data: images }] = await Promise.all([
     supabase.from('complaints').select('*, departments(name)').eq('id', complaintId).single(),

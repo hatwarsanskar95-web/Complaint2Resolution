@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 // POST /api/citizen/complaints/[id]/dispute — Phase 24
 export async function POST(
@@ -8,6 +8,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params
+    // Use session client to authenticate the citizen
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -25,6 +26,7 @@ export async function POST(
       )
     }
 
+    // Fetch complaint using session client (citizen can SELECT own complaints via RLS)
     const { data: complaint } = await supabase
       .from('complaints')
       .select('id, status, citizen_id, permanent_id')
@@ -39,9 +41,12 @@ export async function POST(
       return NextResponse.json({ error: `Cannot dispute: complaint is in ${complaint.status} state` }, { status: 422 })
     }
 
+    // Use service role client to bypass RLS for INSERT/UPDATE operations
+    const admin = createServiceRoleClient()
+
     // Save dispute photo to complaint_images if provided
     if (body.dispute_photo_url?.trim()) {
-      await supabase.from('complaint_images').insert({
+      await admin.from('complaint_images').insert({
         complaint_id: id,
         image_url: body.dispute_photo_url.trim(),
         image_type: 'dispute',
@@ -49,7 +54,7 @@ export async function POST(
     }
 
     // Save citizen_verifications record (is_satisfied = false)
-    const { error: verifyErr } = await supabase.from('citizen_verifications').insert({
+    const { error: verifyErr } = await admin.from('citizen_verifications').insert({
       complaint_id: id,
       citizen_id: user.id,
       is_satisfied: false,
@@ -60,9 +65,11 @@ export async function POST(
     })
     if (verifyErr) throw verifyErr
 
-    // Transition to DISPUTED
-    await supabase.from('complaints').update({ status: 'DISPUTED' }).eq('id', id)
-    await supabase.from('complaint_status_history').insert({
+    // Transition to DISPUTED (service role bypasses UPDATE RLS)
+    const { error: updateErr } = await admin.from('complaints').update({ status: 'DISPUTED' }).eq('id', id)
+    if (updateErr) throw updateErr
+
+    await admin.from('complaint_status_history').insert({
       complaint_id: id,
       old_status: complaint.status,
       new_status: 'DISPUTED',

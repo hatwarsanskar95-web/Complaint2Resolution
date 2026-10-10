@@ -3,7 +3,7 @@
 // src/lib/services/aiVerificationService.ts
 // ============================================================
 
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getGeminiClient, GEMINI_DEFAULT_MODEL } from '@/lib/gemini'
 import { z } from 'zod'
 
@@ -46,7 +46,9 @@ export async function runAiVerification(complaintId: string): Promise<{
   confidence: number
   explanation: string
 }> {
-  const supabase = await createClient()
+  // Use service role client — this function is called asynchronously (detached from request)
+  // and needs to bypass RLS to read resolution data and update complaint status
+  const supabase = createServiceRoleClient()
 
   // Fetch complaint + resolution submission + images
   const [{ data: complaint }, { data: submission }, { data: images }] = await Promise.all([
@@ -153,16 +155,15 @@ Return ONLY valid JSON, no markdown fences.`
   })
 
   // Transition complaint status based on verdict
-  const supabase2 = await createClient()
   const newStatus =
     parsed.verdict === 'RESOLUTION_CONSISTENT'
       ? 'CITIZEN_VERIFICATION'
       : 'HUMAN_REVIEW_REQUIRED'
 
-  const { data: current } = await supabase2.from('complaints').select('status').eq('id', complaintId).single()
+  const { data: current } = await supabase.from('complaints').select('status').eq('id', complaintId).single()
 
-  await supabase2.from('complaints').update({ status: newStatus }).eq('id', complaintId)
-  await supabase2.from('complaint_status_history').insert({
+  await supabase.from('complaints').update({ status: newStatus }).eq('id', complaintId)
+  await supabase.from('complaint_status_history').insert({
     complaint_id: complaintId,
     old_status: current?.status ?? 'RESOLUTION_SUBMITTED',
     new_status: newStatus,

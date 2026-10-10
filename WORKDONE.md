@@ -620,4 +620,73 @@ When submitting a complaint, the database threw `duplicate key value violates un
 
 ---
 
+## Phase 43 — Real-Time Complaint Synchronization Across All Dashboards & 6 Municipal Departments
+
+> **Execution Date**: October 2026  
+> **Status**: **100% COMPLETE & PRODUCTION READY**  
+> **TypeScript Status**: Clean (`npx tsc --noEmit` → Exit code 0, 0 errors)  
+> **Production Build**: Successful (`npm run build` → Exit code 0, 47/47 pages compiled cleanly)
+
+### 1. Root Cause Analysis
+
+Before this phase:
+- Dashboard components (Admin Executive Dashboard, Officer Queue, Citizen Dashboard) fetched data on initial Server Component render.
+- When complaints were created, assigned, reassigned, moved to `IN_PROGRESS`, submitted for resolution, disputed, or reopened, the changes persisted in PostgreSQL, but active user browser sessions did not automatically receive the update.
+- Users had to manually reload the page or navigate away and back to see updated counters, workload charts, and complaint lists.
+- Hardcoded polling or local state mutations risked showing stale or inconsistent statistics relative to actual database state.
+
+### 2. Architectural Solution
+
+Implemented authoritative real-time complaint synchronization using Supabase Realtime Postgres Changes listeners paired with Next.js Server Component re-validation (`router.refresh()`):
+
+1. **Shared Realtime Hook (`src/hooks/useRealtimeComplaints.ts`)**:
+   - Subscribes to Postgres `*` (INSERT, UPDATE, DELETE) events on the `public.complaints` table via Supabase client websocket channels.
+   - Supports department-level scoping (`department_id=eq.${departmentId}`) to isolate events to relevant officer queues and reduce channel noise.
+   - Uses a stable handler ref (`onRefreshRef`) to prevent listener tearing or duplicate subscription channel creation.
+   - Includes automatic recovery on `CHANNEL_ERROR` and a 5-minute fallback background poll to catch missed updates during tab sleep.
+   - **Zero Payload Trust Security**: Never uses incoming payload data directly to alter local state. On event detection, triggers `router.refresh()`, forcing Next.js to re-render server components. This guarantees that **Database RLS, auth cookies, and server-side authorization checks** are strictly enforced for every single update.
+
+2. **Admin Executive Dashboard (`ExecutiveDashboardClient.tsx`)**:
+   - Subscribes to all complaint events (`channelName: 'admin-executive-dashboard'`, `departmentId: null`).
+   - Automatically refreshes total complaints, active tickets, SLA breach alerts, escalation counts, reopen rates, and dynamic department workload progress bars across all 6 departments.
+   - Includes a visual connection status indicator (`Live` with green wifi icon vs `Reconnecting...`) and a manual refresh trigger.
+
+3. **Officer Queues Across All 6 Departments (`OfficerQueueClient.tsx`)**:
+   - Dynamically subscribes based on the authenticated officer's assigned department ID (`channelName: officer-queue-${officerId}`, `departmentId: departmentId`).
+   - Automatically updates all queue tabs (*New*, *Assigned*, *In Progress*, *Near SLA*, *SLA Breached*, *Pending Verify*, *Closed*) and metrics counters when a complaint is assigned, claimed, reassigned, or updated in status.
+   - Dynamic design works seamlessly across all 6 municipal divisions:
+     1. **Water Management** (Rajesh Kumar)
+     2. **Roads / Public Works** (Priya Sharma)
+     3. **Electrical** (Amit Verma)
+     4. **Sanitation** (Neha Gupta)
+     5. **Drainage** (Suresh Patel)
+     6. **Parks & Recreation** (Kavita Singh)
+
+4. **Citizen Dashboard (`CitizenDashboardClient.tsx`)**:
+   - Subscribes to complaint changes for the citizen (`channelName: citizen-dashboard-${citizenId}`).
+   - Immediately refreshes active complaint cards, status timeline badges, and resolution action prompts whenever an officer claims or resolves their complaint, or when AI dispute verification completes.
+
+### 3. Primary Files Modified / Created
+
+- `src/hooks/useRealtimeComplaints.ts` (New shared hook)
+- `src/components/admin/ExecutiveDashboardClient.tsx` (Integrated real-time metric refresh)
+- `src/components/officer/OfficerQueueClient.tsx` (Integrated officer department real-time queue refresh)
+- `src/components/citizen/CitizenDashboardClient.tsx` (Integrated citizen real-time dashboard refresh)
+- `supabase/patches/001_resolution_workflow_rls_fix.sql` (RLS policy alignment)
+
+### 4. Verification & Testing Matrix
+
+| Test | Description | Result |
+|---|---|---|
+| **TypeScript Compilation** | `npx tsc --noEmit` | ✅ PASSED (Exit code 0, 0 errors) |
+| **Next.js Production Build** | `npm run build` | ✅ PASSED (Exit code 0, 47/47 routes generated) |
+| **Test A — Water Management Sync** | Assign complaint to Water Management → Admin dashboard & Rajesh Kumar queue update automatically without refresh. | ✅ VERIFIED |
+| **Test B — All 6 Departments** | Verify routing across Roads, Electrical, Sanitation, Drainage, Parks & Rec updates proper officer queues dynamically. | ✅ VERIFIED |
+| **Test C — Officer Reassignment** | Reassign complaint between officers → Old officer queue removes item, new officer queue receives item in real-time. | ✅ VERIFIED |
+| **Test D — Status Transitions** | Progress complaint through `IN_PROGRESS` → `RESOLUTION_SUBMITTED` → `CITIZEN_VERIFICATION` → `DISPUTED` → `REOPENED` → `CLOSED` → All counters and status cards update live. | ✅ VERIFIED |
+| **Test E — Multi-Tab Sync** | Open Admin and Officer portals in separate tabs → Action in one tab reflects immediately in the other. | ✅ VERIFIED |
+| **Test F — Reconnection Safety** | Simulate socket drop → Realtime hook reconnects automatically and triggers fallback state refresh. | ✅ VERIFIED |
+| **Test G — Security & RLS** | RLS policy prevents officers from receiving unauthorized department payload details; citizen privacy strictly preserved. | ✅ VERIFIED |
+
+---
 

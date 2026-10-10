@@ -68,14 +68,15 @@ export async function POST(
     }
 
     // Save resolution_submissions record (Phase 20)
-    const { error: subErr } = await supabase.from('resolution_submissions').insert({
+    // Use upsert so reopened complaints can have updated resolution evidence
+    const { error: subErr } = await supabase.from('resolution_submissions').upsert({
       complaint_id: id,
       officer_id: user.id,
       action_taken,
       before_photo_url,
       after_photo_url,
       submitted_at: new Date().toISOString(),
-    })
+    }, { onConflict: 'complaint_id' })
 
     if (subErr) throw subErr
 

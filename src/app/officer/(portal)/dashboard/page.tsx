@@ -75,6 +75,7 @@ export default async function OfficerDashboard() {
       officerName={officerName}
       departmentName={departmentName}
       officerId={user.id}
+      departmentId={departmentId}
       queues={{
         new: qNew,
         assigned: qAssigned,

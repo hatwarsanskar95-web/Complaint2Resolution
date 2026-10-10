@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   TrendingUp,
   AlertTriangle,
@@ -11,8 +12,12 @@ import {
   Building,
   BarChart3,
   Flame,
-  ArrowUpRight
+  ArrowUpRight,
+  RefreshCw,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
+import { useRealtimeComplaints } from '@/hooks/useRealtimeComplaints'
 
 interface MetricsData {
   totalComplaints: number
@@ -35,9 +40,43 @@ export default function ExecutiveDashboardClient({
   initialNearSla,
   initialDepartmentWorkload,
 }: ExecutiveDashboardClientProps) {
+  const router = useRouter()
   const [metrics, setMetrics] = useState<MetricsData>(initialMetrics)
   const [nearSla, setNearSla] = useState<any[]>(initialNearSla)
   const [workload, setWorkload] = useState(initialDepartmentWorkload)
+  const [refreshing, setRefreshing] = useState(false)
+  const [realtimeOk, setRealtimeOk] = useState(true)
+
+  // Sync when server re-fetches (via router.refresh) push new props down
+  useEffect(() => { setMetrics(initialMetrics) }, [initialMetrics])
+  useEffect(() => { setNearSla(initialNearSla) }, [initialNearSla])
+  useEffect(() => { setWorkload(initialDepartmentWorkload) }, [initialDepartmentWorkload])
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    router.refresh()
+    await new Promise((r) => setTimeout(r, 800))
+    setRefreshing(false)
+  }, [router])
+
+  // ── Supabase Realtime ──
+  // Subscribes to ALL complaint changes (admin sees everything).
+  // On any event, triggers router.refresh() which re-fetches the Server Component
+  // and pushes updated metrics/workload/nearSla props down to this client.
+  useRealtimeComplaints({
+    channelName: 'admin-executive-dashboard',
+    departmentId: null, // null = subscribe to all departments
+    onRefresh: () => {
+      setRealtimeOk(true)
+      router.refresh()
+    },
+  })
+
+  // Fallback poll every 5 minutes
+  useEffect(() => {
+    const id = setInterval(() => router.refresh(), 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [router])
 
   const maxWorkload = Math.max(...workload.map((w) => w.count), 1)
 
@@ -53,6 +92,23 @@ export default function ExecutiveDashboardClient({
           <p className="text-sm text-slate-400 mt-1">
             Real-time municipal operations monitoring, KPI metrics, and SLA urgency tracking.
           </p>
+        </div>
+        {/* Live indicator + refresh */}
+        <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${
+            realtimeOk ? 'bg-emerald-950/40 border-emerald-500/25 text-emerald-400' : 'bg-amber-950/40 border-amber-500/25 text-amber-400'
+          }`}>
+            {realtimeOk ? <Wifi size={12} /> : <WifiOff size={12} />}
+            {realtimeOk ? 'Live' : 'Reconnecting…'}
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-700 hover:border-emerald-500/50 text-xs text-slate-300 hover:text-emerald-400 font-semibold transition-all disabled:opacity-60 cursor-pointer"
+          >
+            <RefreshCw size={12} className={refreshing ? 'animate-spin text-emerald-400' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
         </div>
       </div>
 
