@@ -280,10 +280,10 @@ export default function ReportComplaintPage() {
 
         <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
           <button
-            onClick={() => router.push('/citizen/dashboard')}
+            onClick={() => router.push(`/track?id=${successId}`)}
             className="px-6 py-3 rounded-full bg-[#15803d] hover:bg-[#166534] text-white text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <span>View in Dashboard</span>
+            <span>Track Progress</span>
             <ArrowRight size={15} />
           </button>
           <button

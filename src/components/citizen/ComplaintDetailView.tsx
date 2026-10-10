@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, MapPin, Clock, Calendar, User, Building2,
   CheckCircle2, AlertCircle, AlertTriangle, Sparkles, FileText, Download, Share2,
-  Check, Circle, RefreshCw, X, Camera, Send, Loader2
+  Check, Circle, RefreshCw, X, Camera, Send, Loader2, Eye
 } from 'lucide-react'
 import {
   Complaint, ComplaintImage, ComplaintStatusHistory,
@@ -61,6 +61,11 @@ interface ComplaintDetailViewProps {
   images: ComplaintImage[]
   timeline: ComplaintStatusHistory[]
   ai: ComplaintAiAnalysis | null
+  resolutionSubmission?: {
+    action_taken?: string
+    before_photo_url?: string
+    after_photo_url?: string
+  } | null
 }
 
 export default function ComplaintDetailView({
@@ -68,6 +73,7 @@ export default function ComplaintDetailView({
   images: imgs,
   timeline,
   ai,
+  resolutionSubmission,
 }: ComplaintDetailViewProps) {
   const router = useRouter()
   const originalImgs = imgs.filter(i => i.image_type === 'original')
@@ -76,6 +82,7 @@ export default function ComplaintDetailView({
   // Dispute & Confirm Resolution Modal state
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [showDisputeModal, setShowDisputeModal] = useState(false)
+  const [showSolutionModal, setShowSolutionModal] = useState(false)
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState('')
   const [disputeReason, setDisputeReason] = useState('')
@@ -216,13 +223,6 @@ export default function ComplaintDetailView({
           >
             <Share2 size={13} /> Public Tracking
           </Link>
-          <a
-            href={`/api/complaints/${c.id}/pdf`}
-            target="_blank"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 rounded-lg hover:bg-emerald-900/60 transition-colors"
-          >
-            <Download size={13} /> Official Detailed PDF
-          </a>
         </div>
       </FadeIn>
 
@@ -258,7 +258,7 @@ export default function ComplaintDetailView({
       )}
 
       {/* CITIZEN ACTION BANNER (When Awaiting Verification) */}
-      {['CITIZEN_VERIFICATION', 'RESOLVED'].includes(c.status) && (
+      {['RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'CITIZEN_VERIFICATION', 'RESOLVED'].includes(c.status) && (
         <FadeIn direction="up">
           <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-950 to-teal-950 border border-emerald-700/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
             <div className="space-y-1">
@@ -334,6 +334,16 @@ export default function ComplaintDetailView({
                     <h4 className="text-xs font-bold leading-tight">{stg.title}</h4>
                     <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{stg.desc}</p>
                   </div>
+
+                  {stg.num === 5 && (isCompleted || isCurrent) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSolutionModal(true)}
+                      className="mt-2 text-[10px] font-bold px-2 py-1 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200 border border-cyan-700/60 transition-colors flex items-center justify-center gap-1 cursor-pointer w-full"
+                    >
+                      <Eye size={12} /> View Solution
+                    </button>
+                  )}
 
                   <div className="mt-3 pt-2 border-t border-slate-800/50 text-[10px] font-mono text-slate-400">
                     {stageTimestamp ? new Date(stageTimestamp).toLocaleDateString() : 'Waiting…'}
@@ -672,6 +682,147 @@ export default function ComplaintDetailView({
                 {submitting ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={14} />}
                 <span>Reopen Complaint</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW SOLUTION MODAL FOR STEP 5 */}
+      {showSolutionModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <CheckCircle2 size={18} className="text-cyan-400" />
+                <span>Officer Solution Evidence (Step 5)</span>
+              </h3>
+              <button onClick={() => setShowSolutionModal(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Officer Action Description */}
+            <div className="space-y-1.5 bg-slate-950 p-3 rounded-xl border border-slate-800">
+              <span className="text-[11px] uppercase font-bold text-cyan-400">Action Taken / Resolution Description</span>
+              <p className="text-xs text-slate-200 leading-relaxed">
+                {resolutionSubmission?.action_taken ||
+                  timeline.find(t => t.notes?.includes('Action:'))?.notes?.split('Action:')[1]?.trim() ||
+                  timeline.find(t => t.new_status === 'RESOLUTION_SUBMITTED' && !t.notes?.includes('Status transitioned'))?.notes ||
+                  'Officer completed site repair and submitted photographic proof.'}
+              </p>
+            </div>
+
+            {/* Before / After Evidence Images */}
+            <div className="space-y-2">
+              <span className="text-[11px] uppercase font-bold text-slate-400">Before &amp; After Photographic Evidence</span>
+              <div className="grid grid-cols-2 gap-3">
+                {(resolutionSubmission?.before_photo_url || imgs.find(i => i.image_type === 'before')?.image_url) ? (
+                  <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={resolutionSubmission?.before_photo_url || imgs.find(i => i.image_type === 'before')!.image_url}
+                      alt="Before Fix"
+                      className="w-full aspect-[4/3] object-cover"
+                    />
+                    <div className="px-2 py-1 text-[10px] font-bold text-amber-300 bg-slate-950 text-center uppercase">
+                      Before Fix
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col items-center justify-center text-slate-600 text-xs aspect-[4/3]">
+                    No Before Photo
+                  </div>
+                )}
+
+                {(resolutionSubmission?.after_photo_url || imgs.find(i => i.image_type === 'after')?.image_url) ? (
+                  <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={resolutionSubmission?.after_photo_url || imgs.find(i => i.image_type === 'after')!.image_url}
+                      alt="After Fix"
+                      className="w-full aspect-[4/3] object-cover"
+                    />
+                    <div className="px-2 py-1 text-[10px] font-bold text-emerald-300 bg-slate-950 text-center uppercase">
+                      After Fix
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col items-center justify-center text-slate-600 text-xs aspect-[4/3]">
+                    No After Photo
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Satisfaction Rating & Confirmation */}
+            <div className="pt-3 border-t border-slate-800 space-y-3">
+              <p className="text-xs font-semibold text-slate-200">
+                Are you satisfied with the work completed for complaint <strong>{c.permanent_id}</strong>?
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">Satisfaction Rating (1 to 5 Stars)</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      className={`w-9 h-9 rounded-lg font-bold text-xs transition-all ${
+                        rating >= star ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      ★ {star}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">Optional Feedback</label>
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Share feedback on resolution..."
+                  rows={2}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              {actionError && (
+                <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-800 text-xs text-rose-300">
+                  {actionError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowSolutionModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowSolutionModal(false); setShowDisputeModal(true) }}
+                  className="px-4 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-700 text-rose-200 text-xs font-bold transition-all"
+                >
+                  Report Unresolved
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={async () => {
+                    await handleConfirmResolution()
+                    setShowSolutionModal(false)
+                  }}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {submitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                  <span>Confirm &amp; Close Ticket</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -115,12 +115,18 @@ function TrackingContent() {
       <div className="max-w-4xl mx-auto flex flex-col gap-8">
         {/* Navigation / Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-2 text-xs sm:text-sm text-[var(--text-muted)] hover:text-white transition-colors"
+          <button
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.history.length > 1) {
+                window.history.back()
+              } else {
+                window.location.href = '/'
+              }
+            }}
+            className="inline-flex items-center gap-2 text-xs sm:text-sm text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
           >
-            <ArrowLeft size={16} /> Back to Sign In
-          </Link>
+            <ArrowLeft size={16} /> Back
+          </button>
           <div className="flex items-center gap-2">
             <ShieldCheck size={20} className="text-[var(--brand-emerald)]" />
             <span className="text-sm font-semibold tracking-wide text-emerald-400">Public Civic Resolution Portal</span>

@@ -28,7 +28,8 @@ interface ComplaintItem {
   sla_deadline: string
   created_at: string
   departments?: { id: string; name: string } | null
-  profiles?: { full_name: string } | null
+  citizen?: { full_name?: string; email?: string; phone_number?: string } | null
+  assigned_officer?: { full_name?: string; email?: string } | null
 }
 
 interface AdminComplaintsClientProps {
@@ -332,9 +333,10 @@ export default function AdminComplaintsClient({ departments }: AdminComplaintsCl
 
             <div className="space-y-4 text-xs">
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
-                <div><span className="text-slate-500">Address:</span> {selectedComplaint.address}</div>
-                <div><span className="text-slate-500">Description:</span> {selectedComplaint.description}</div>
-                <div><span className="text-slate-500">Assigned Officer:</span> {selectedComplaint.profiles?.full_name ?? 'Unassigned'}</div>
+                <div><span className="text-slate-500 font-semibold">Citizen Info:</span> <span className="text-slate-200">{selectedComplaint.citizen?.full_name || 'Citizen'}</span> <span className="text-slate-400">({selectedComplaint.citizen?.email || 'No email'})</span></div>
+                <div><span className="text-slate-500 font-semibold">Address:</span> {selectedComplaint.address}</div>
+                <div><span className="text-slate-500 font-semibold">Description:</span> {selectedComplaint.description}</div>
+                <div><span className="text-slate-500 font-semibold">Assigned Officer:</span> <span className="text-indigo-300">{selectedComplaint.assigned_officer?.full_name || 'Unassigned'}</span></div>
               </div>
 
               <div>

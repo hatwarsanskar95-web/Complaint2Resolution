@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 // ============================================================
 // Public Complaint Tracking API
 // GET /api/complaints/track/[permanentId]
 //
-// Uses SECURITY DEFINER PostgreSQL functions to bypass RLS safely.
-// These functions are granted to the `anon` role but only expose
-// approved public fields — citizen identity is NEVER exposed.
+// Read-only server lookup using createServiceRoleClient().
+// Does NOT touch or mutate user cookies, session tokens, or auth state.
+// Only exposes approved public fields — citizen identity is NEVER exposed.
 // ============================================================
 
 export async function GET(
@@ -25,66 +25,137 @@ export async function GET(
       return NextResponse.json({ error: 'Permanent ID cannot be empty' }, { status: 400 })
     }
 
-    // Use the standard anon-key server client.
-    // The actual query uses a SECURITY DEFINER DB function granted to anon,
-    // which safely bypasses RLS without exposing the service role key.
-    const supabase = await createClient()
+    // Use service role client for public tracking lookup so it is 100% read-only,
+    // bypasses RLS, and does NOT mutate or clear any authenticated user cookies.
+    const supabase = createServiceRoleClient()
 
-    // Call the SECURITY DEFINER function — returns only approved public fields
-    const { data: rows, error: fnErr } = await supabase
-      .rpc('get_public_complaint_tracking', { p_permanent_id: cleanId })
+    // 1. Try calling SECURITY DEFINER RPC first if present
+    let complaintData: any = null
+    const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_public_complaint_tracking', { p_permanent_id: cleanId })
 
-    if (fnErr) {
-      console.error('[Public Tracking API] DB function error:', fnErr.message)
+    if (!rpcErr && rpcRows && rpcRows.length > 0) {
+      const r = rpcRows[0]
+      complaintData = {
+        id: r.id,
+        permanent_id: r.permanent_id,
+        category: r.category,
+        subcategory: r.subcategory,
+        description: r.description,
+        address: r.address,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        priority: r.priority,
+        status: r.status,
+        sla_start_time: r.sla_start_time,
+        sla_duration_hours: r.sla_duration_hours,
+        sla_deadline: r.sla_deadline,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        departments: r.department_name ? { name: r.department_name, code: r.department_code } : null,
+      }
+    } else {
+      // Fallback: Direct select on complaints + departments
+      const { data: directComplaint, error: fetchErr } = await supabase
+        .from('complaints')
+        .select(`
+          id,
+          permanent_id,
+          category,
+          subcategory,
+          description,
+          address,
+          latitude,
+          longitude,
+          priority,
+          status,
+          sla_start_time,
+          sla_duration_hours,
+          sla_deadline,
+          created_at,
+          updated_at,
+          department_id,
+          departments (
+            name,
+            code
+          )
+        `)
+        .ilike('permanent_id', cleanId)
+        .maybeSingle()
+
+      if (fetchErr) {
+        console.error('[Public Tracking API] Direct fetch error:', fetchErr.message)
+      }
+      complaintData = directComplaint
     }
 
-    const complaint = rows && rows.length > 0 ? rows[0] : null
-
-    if (!complaint) {
+    if (!complaintData) {
       return NextResponse.json(
         { error: 'Complaint ticket not found. Please check the Permanent ID (e.g. CR-2026-000001).' },
         { status: 404 }
       )
     }
 
-    // Fetch public timeline and images using SECURITY DEFINER functions
-    const [{ data: timelineRows }, { data: imageRows }] = await Promise.all([
-      supabase.rpc('get_public_complaint_timeline', { p_complaint_id: complaint.id }),
-      supabase.rpc('get_public_complaint_images', { p_complaint_id: complaint.id }),
+    // 2. Fetch images, timeline, and AI analysis in parallel
+    const [{ data: images }, { data: timeline }, { data: aiAnalysis }] = await Promise.all([
+      supabase
+        .from('complaint_images')
+        .select('image_url, image_type')
+        .eq('complaint_id', complaintData.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('complaint_status_history')
+        .select('id, old_status, new_status, notes, created_at')
+        .eq('complaint_id', complaintData.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('complaint_ai_analysis')
+        .select('category, subcategory, department_recommendation, summary, recommended_actions, confidence')
+        .eq('complaint_id', complaintData.id)
+        .maybeSingle(),
     ])
+
+    const dept = Array.isArray(complaintData.departments)
+      ? complaintData.departments[0]
+      : complaintData.departments
 
     return NextResponse.json({
       complaint: {
-        id: complaint.id,
-        permanentId: complaint.permanent_id,
-        category: complaint.category,
-        subcategory: complaint.subcategory,
-        description: complaint.description,
-        address: complaint.address,
-        latitude: complaint.latitude,
-        longitude: complaint.longitude,
-        priority: complaint.priority,
-        status: complaint.status,
-        slaStartTime: complaint.sla_start_time,
-        slaDurationHours: complaint.sla_duration_hours,
-        slaDeadline: complaint.sla_deadline,
-        createdAt: complaint.created_at,
-        updatedAt: complaint.updated_at,
-        department: complaint.department_name
-          ? { name: complaint.department_name, code: complaint.department_code }
-          : null,
+        id: complaintData.id,
+        permanentId: complaintData.permanent_id,
+        category: complaintData.category,
+        subcategory: complaintData.subcategory,
+        description: complaintData.description,
+        address: complaintData.address,
+        latitude: complaintData.latitude,
+        longitude: complaintData.longitude,
+        priority: complaintData.priority,
+        status: complaintData.status,
+        slaStartTime: complaintData.sla_start_time,
+        slaDurationHours: complaintData.sla_duration_hours,
+        slaDeadline: complaintData.sla_deadline,
+        createdAt: complaintData.created_at,
+        updatedAt: complaintData.updated_at,
+        department: dept ? { name: dept.name, code: dept.code } : null,
       },
-      images: (imageRows || []).map((img: { image_url: string; image_type: string }) => ({
+      images: (images || []).map((img) => ({
         image_url: img.image_url,
         image_type: img.image_type,
       })),
-      timeline: (timelineRows || []).map((h: { id: string; old_status: string; new_status: string; notes: string; created_at: string }) => ({
+      timeline: (timeline || []).map((h) => ({
         id: h.id,
         oldStatus: h.old_status,
         newStatus: h.new_status,
         notes: h.notes,
         createdAt: h.created_at,
       })),
+      aiAnalysis: aiAnalysis ? {
+        category: aiAnalysis.category,
+        subcategory: aiAnalysis.subcategory,
+        departmentRecommendation: aiAnalysis.department_recommendation,
+        summary: aiAnalysis.summary,
+        recommendedActions: aiAnalysis.recommended_actions,
+        confidence: aiAnalysis.confidence,
+      } : null,
     })
   } catch (err) {
     console.error('[Public Tracking API Error]', err)

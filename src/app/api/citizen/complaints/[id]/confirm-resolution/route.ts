@@ -31,7 +31,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden: only the complaint owner can confirm resolution' }, { status: 403 })
     }
 
-    if (complaint.status !== 'CITIZEN_VERIFICATION') {
+    if (!['CITIZEN_VERIFICATION', 'RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'RESOLVED'].includes(complaint.status)) {
       return NextResponse.json({ error: `Cannot confirm: complaint is in ${complaint.status} state` }, { status: 422 })
     }
 
@@ -51,7 +51,7 @@ export async function POST(
     await supabase.from('complaints').update({ status: 'CLOSED' }).eq('id', id)
     await supabase.from('complaint_status_history').insert({
       complaint_id: id,
-      old_status: 'CITIZEN_VERIFICATION',
+      old_status: complaint.status,
       new_status: 'CLOSED',
       updated_by: user.id,
       notes: `Citizen confirmed resolution. Rating: ${body.feedback_rating ?? 'N/A'}/5.`,

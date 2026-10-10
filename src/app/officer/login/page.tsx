@@ -62,6 +62,15 @@ export default function OfficerLoginPage() {
     }
   }
 
+  function handleEmailChange(newEmail: string) {
+    setEmail(newEmail)
+    setError(null)
+    const matched = DEPARTMENTS.find(d => d.email.toLowerCase() === newEmail.trim().toLowerCase())
+    if (matched) {
+      setSelectedDept(matched.id)
+    }
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -108,22 +117,14 @@ export default function OfficerLoginPage() {
           .select('department_id, departments(id, code, name)')
           .eq('profile_id', data.user.id)
 
-        const targetDept = DEPARTMENTS.find(d => d.id === selectedDept)
         const assignedDeptRaw = deptRows?.[0]?.departments
         const assignedDept = Array.isArray(assignedDeptRaw)
           ? assignedDeptRaw[0]
           : (assignedDeptRaw as { id: string; code: string; name: string } | undefined)
 
-        if (assignedDept && targetDept && assignedDept.code.toUpperCase() !== targetDept.code.toUpperCase()) {
-          await supabase.auth.signOut()
-          const mismatchMsg = `Department Mismatch: Your credentials belong to "${assignedDept.name}". You cannot log in under "${targetDept.name}". Please select your correct department.`
-          setError(mismatchMsg)
-          toast.error('Department Mismatch', mismatchMsg)
-          setLoading(false)
-          return
-        }
+        const deptName = assignedDept?.name || DEPARTMENTS.find(d => d.id === selectedDept)?.name || 'Officer Portal'
 
-        toast.success('Signed In Successfully', `Welcome, Officer ${profile?.full_name || ''} (${targetDept?.name || 'Officer Portal'})`)
+        toast.success('Signed In Successfully', `Welcome, Officer ${profile?.full_name || ''} (${deptName})`)
         router.push('/officer/dashboard')
       } else {
         toast.success('Signed In Successfully', 'Redirecting to Admin Portal')

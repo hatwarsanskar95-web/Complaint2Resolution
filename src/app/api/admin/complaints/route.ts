@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 
     let dbQuery = supabase
       .from('complaints')
-      .select('*, departments(id, name), profiles!assigned_officer_id(full_name)', { count: 'exact' })
+      .select('*, departments(id, name), citizen:profiles!citizen_id(full_name, email, phone_number), assigned_officer:profiles!assigned_officer_id(full_name, email)', { count: 'exact' })
 
     if (query) {
       dbQuery = dbQuery.or(

@@ -17,21 +17,29 @@ export default async function OfficerComplaintDetailPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/officer/login')
 
-  const { data: complaint } = await supabase
+  let complaintQuery = supabase
     .from('complaints')
     .select('*, departments(name, code)')
-    .eq('id', id)
-    .single()
+
+  if (id.startsWith('CR-')) {
+    complaintQuery = complaintQuery.eq('permanent_id', id)
+  } else {
+    complaintQuery = complaintQuery.eq('id', id)
+  }
+
+  const { data: complaint } = await complaintQuery.maybeSingle()
 
   if (!complaint) notFound()
 
   // Phase 18 — Log SLA threshold events server-side when officer opens this complaint
   await checkAndLogSlaThresholds(complaint.id, complaint.sla_deadline, complaint.sla_start_time)
 
+  const complaintId = complaint.id
+
   const [{ data: images }, { data: history }, { data: aiAnalysis }] = await Promise.all([
-    supabase.from('complaint_images').select('*').eq('complaint_id', id).order('created_at'),
-    supabase.from('complaint_status_history').select('*').eq('complaint_id', id).order('created_at'),
-    supabase.from('complaint_ai_analysis').select('*').eq('complaint_id', id).single(),
+    supabase.from('complaint_images').select('*').eq('complaint_id', complaintId).order('created_at'),
+    supabase.from('complaint_status_history').select('*').eq('complaint_id', complaintId).order('created_at'),
+    supabase.from('complaint_ai_analysis').select('*').eq('complaint_id', complaintId).maybeSingle(),
   ])
 
   return (

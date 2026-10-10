@@ -17,13 +17,10 @@ export async function POST(
       dispute_reason: string
     }
 
-    // Enforce mandatory fields (Phase 24)
-    const missing: string[] = []
-    if (!body.dispute_photo_url?.trim()) missing.push('dispute_photo_url')
-    if (!body.dispute_reason?.trim()) missing.push('dispute_reason')
-    if (missing.length > 0) {
+    // Enforce mandatory dispute reason
+    if (!body.dispute_reason?.trim()) {
       return NextResponse.json(
-        { error: `Missing required fields: ${missing.join(', ')}. A current photo is mandatory.` },
+        { error: 'Dispute reason is required.' },
         { status: 400 }
       )
     }
@@ -38,17 +35,18 @@ export async function POST(
     if (complaint.citizen_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    if (complaint.status !== 'CITIZEN_VERIFICATION') {
+    if (!['CITIZEN_VERIFICATION', 'RESOLUTION_SUBMITTED', 'AI_VERIFICATION', 'RESOLVED'].includes(complaint.status)) {
       return NextResponse.json({ error: `Cannot dispute: complaint is in ${complaint.status} state` }, { status: 422 })
     }
 
-    // Save dispute photo to complaint_images with image_type='dispute'
-    const { error: imgErr } = await supabase.from('complaint_images').insert({
-      complaint_id: id,
-      image_url: body.dispute_photo_url,
-      image_type: 'dispute',
-    })
-    if (imgErr) throw imgErr
+    // Save dispute photo to complaint_images if provided
+    if (body.dispute_photo_url?.trim()) {
+      await supabase.from('complaint_images').insert({
+        complaint_id: id,
+        image_url: body.dispute_photo_url.trim(),
+        image_type: 'dispute',
+      })
+    }
 
     // Save citizen_verifications record (is_satisfied = false)
     const { error: verifyErr } = await supabase.from('citizen_verifications').insert({
@@ -57,7 +55,7 @@ export async function POST(
       is_satisfied: false,
       feedback_rating: null,
       feedback_comment: null,
-      dispute_photo_url: body.dispute_photo_url,
+      dispute_photo_url: body.dispute_photo_url?.trim() || null,
       dispute_reason: body.dispute_reason,
     })
     if (verifyErr) throw verifyErr
@@ -66,7 +64,7 @@ export async function POST(
     await supabase.from('complaints').update({ status: 'DISPUTED' }).eq('id', id)
     await supabase.from('complaint_status_history').insert({
       complaint_id: id,
-      old_status: 'CITIZEN_VERIFICATION',
+      old_status: complaint.status,
       new_status: 'DISPUTED',
       updated_by: user.id,
       notes: `Citizen disputed resolution. Reason: ${body.dispute_reason.slice(0, 200)}`,

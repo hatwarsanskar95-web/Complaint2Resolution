@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { runAiVerification } from '@/lib/services/aiVerificationService'
 
 // ============================================================
 // Phase 20 — Resolution Evidence Submission API
@@ -95,12 +96,10 @@ export async function POST(
       notes: `Resolution submitted by Officer ${profile.full_name ?? user.id}. Action: ${action_taken.slice(0, 120)}`,
     })
 
-    // Trigger AI verification asynchronously (non-blocking)
-    fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ''}/api/complaints/analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ complaintId: id, stage: 'resolution_verification' }),
-    }).catch(() => {})
+    // Trigger AI verification asynchronously to analyze evidence and advance to CITIZEN_VERIFICATION
+    runAiVerification(id).catch((aiErr) => {
+      console.error('[Resolve API] AI verification async execution error:', aiErr)
+    })
 
     return NextResponse.json({
       success: true,

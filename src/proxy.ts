@@ -8,11 +8,13 @@ export async function proxy(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Bypass auth middleware checks for dedicated callback, verification success, and reset password pages
+  // Bypass auth middleware checks for dedicated callback, verification success, reset password, and public tracking pages
   if (
     pathname.startsWith('/auth/callback') ||
     pathname.startsWith('/verification-success') ||
-    pathname.startsWith('/reset-password')
+    pathname.startsWith('/reset-password') ||
+    pathname.startsWith('/track') ||
+    pathname.startsWith('/api/complaints/track')
   ) {
     return supabaseResponse
   }

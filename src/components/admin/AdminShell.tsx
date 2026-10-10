@@ -210,7 +210,15 @@ export default function AdminShell({
           </div>
 
           {/* Right section: Date & Admin User Profile */}
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/track"
+              target="_blank"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-blue-500/50 text-xs text-slate-300 hover:text-white transition-all cursor-pointer"
+            >
+              <Search size={13} className="text-blue-400" />
+              <span>Public Tracker</span>
+            </Link>
             <NotificationBell />
 
             <div className="hidden lg:flex flex-col text-right">

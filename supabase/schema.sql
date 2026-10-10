@@ -468,3 +468,97 @@ CREATE POLICY "Users update own notifications" ON public.notifications FOR UPDAT
 CREATE POLICY "Admins read audit logs" ON public.audit_logs FOR SELECT USING (
   EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('dept_admin', 'super_admin'))
 );
+
+-- ============================================================
+-- SECURITY DEFINER FUNCTIONS FOR PUBLIC TRACKING
+-- Exposes approved public complaint telemetry without citizen identity
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.get_public_complaint_tracking(p_permanent_id TEXT)
+RETURNS TABLE (
+  id UUID,
+  permanent_id TEXT,
+  category TEXT,
+  subcategory TEXT,
+  description TEXT,
+  address TEXT,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  priority priority_level,
+  status complaint_status,
+  sla_start_time TIMESTAMP WITH TIME ZONE,
+  sla_duration_hours INTEGER,
+  sla_deadline TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  department_name TEXT,
+  department_code TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    c.id,
+    c.permanent_id,
+    c.category,
+    c.subcategory,
+    c.description,
+    c.address,
+    c.latitude,
+    c.longitude,
+    c.priority,
+    c.status,
+    c.sla_start_time,
+    c.sla_duration_hours,
+    c.sla_deadline,
+    c.created_at,
+    c.updated_at,
+    d.name AS department_name,
+    d.code AS department_code
+  FROM public.complaints c
+  LEFT JOIN public.departments d ON d.id = c.department_id
+  WHERE UPPER(c.permanent_id) = UPPER(p_permanent_id);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.get_public_complaint_timeline(p_complaint_id UUID)
+RETURNS TABLE (
+  id UUID,
+  old_status complaint_status,
+  new_status complaint_status,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    h.id,
+    h.old_status,
+    h.new_status,
+    h.notes,
+    h.created_at
+  FROM public.complaint_status_history h
+  WHERE h.complaint_id = p_complaint_id
+  ORDER BY h.created_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.get_public_complaint_images(p_complaint_id UUID)
+RETURNS TABLE (
+  image_url TEXT,
+  image_type TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    i.image_url,
+    i.image_type
+  FROM public.complaint_images i
+  WHERE i.complaint_id = p_complaint_id
+  ORDER BY i.created_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.get_public_complaint_tracking(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_public_complaint_timeline(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_public_complaint_images(UUID) TO anon, authenticated;
+

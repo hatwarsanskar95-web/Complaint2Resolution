@@ -217,6 +217,14 @@ export default function OfficerLayoutClient({
 
           {/* Officer Profile */}
           <div className="flex items-center gap-3">
+            <Link
+              href="/track"
+              target="_blank"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0b1410] border border-[#16271e] hover:border-emerald-500/50 text-xs text-slate-300 hover:text-emerald-400 transition-all cursor-pointer"
+            >
+              <Search size={13} className="text-emerald-400" />
+              <span>Public Tracker</span>
+            </Link>
             <div className="flex items-center gap-2.5 pl-3 border-l border-[#15231c]">
               <div className="w-8 h-8 rounded-full bg-amber-600/90 border border-amber-500/40 flex items-center justify-center text-white text-xs font-bold shadow-[0_0_12px_rgba(245,158,11,0.3)]">
                 {officerInitials}
