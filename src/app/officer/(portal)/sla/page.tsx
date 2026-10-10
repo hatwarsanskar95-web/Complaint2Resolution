@@ -19,9 +19,9 @@ export default async function OfficerSlaTrackerPage() {
 
   if (['officer', 'dept_admin'].includes(ctx.role)) {
     if (ctx.departmentId) {
-      query = query.eq('department_id', ctx.departmentId)
+      query = query.or(`department_id.eq.${ctx.departmentId},assigned_officer_id.eq.${ctx.id}`)
     } else {
-      query = query.eq('department_id', '00000000-0000-0000-0000-000000000000')
+      query = query.eq('assigned_officer_id', ctx.id)
     }
   }
 

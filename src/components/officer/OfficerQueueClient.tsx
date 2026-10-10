@@ -109,15 +109,17 @@ export default function OfficerQueueClient({ officerName, departmentName, office
         .order('created_at', { ascending: false })
 
       if (departmentId) {
-        query = query.eq('department_id', departmentId)
+        query = query.or(`department_id.eq.${departmentId},assigned_officer_id.eq.${officerId}`)
+      } else {
+        query = query.eq('assigned_officer_id', officerId)
       }
 
       const { data: complaints } = await query
       if (complaints) {
         const all = complaints as ComplaintWithDept[]
-        const qNew = all.filter((c) => ['RECEIVED', 'SUBMITTED'].includes(c.status))
+        const qNew = all.filter((c) => ['RECEIVED', 'SUBMITTED'].includes(c.status) || (c.status === 'ASSIGNED' && !c.assigned_officer_id))
         const qAssigned = all.filter((c) => c.status === 'ASSIGNED' && c.assigned_officer_id === officerId)
-        const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED', 'DISPUTED'].includes(c.status))
+        const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED', 'DISPUTED'].includes(c.status) || (c.status === 'ASSIGNED' && Boolean(c.assigned_officer_id) && c.assigned_officer_id !== officerId))
         const qNearSla = all.filter((c) => {
           if (!c.sla_deadline || !c.sla_start_time) return false
           const { percent } = getSlaStatus(c.sla_deadline, c.sla_start_time)
@@ -248,10 +250,10 @@ export default function OfficerQueueClient({ officerName, departmentName, office
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <MetricCard label="Active Tickets" value={metrics.totalActive} color="text-white" accent="border-slate-800" />
-        <MetricCard label="Pending Intake" value={metrics.pendingCount} color="text-blue-400" accent="border-blue-900/40" />
-        <MetricCard label="SLA Breached" value={metrics.slaBreachedCount} color="text-rose-400" accent="border-rose-900/40" />
-        <MetricCard label="Resolved / Closed" value={metrics.totalClosed} color="text-emerald-400" accent="border-emerald-900/40" />
+        <MetricCard label="Active Tickets" value={metricsState.totalActive} color="text-white" accent="border-slate-800" />
+        <MetricCard label="Pending Intake" value={metricsState.pendingCount} color="text-blue-400" accent="border-blue-900/40" />
+        <MetricCard label="SLA Breached" value={metricsState.slaBreachedCount} color="text-rose-400" accent="border-rose-900/40" />
+        <MetricCard label="Resolved / Closed" value={metricsState.totalClosed} color="text-emerald-400" accent="border-emerald-900/40" />
       </div>
 
       {/* Tab Bar + Search */}
@@ -260,7 +262,7 @@ export default function OfficerQueueClient({ officerName, departmentName, office
           {/* Tabs */}
           <div className="flex gap-1.5 overflow-x-auto pb-1">
             {TABS.map((tab) => {
-              const count = queues[tab.key].length
+              const count = queuesState[tab.key].length
               const isActive = activeTab === tab.key
               return (
                 <button

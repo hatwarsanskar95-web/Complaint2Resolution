@@ -53,6 +53,15 @@ export function calculateSla(priorityInput: string): { priority: PriorityLevel; 
   return { priority: validPriority, slaHours, slaDeadline, slaStart }
 }
 
+const DEPARTMENT_KEYWORDS: Record<string, string[]> = {
+  WTR: ['water', 'jal', 'pipe', 'leak', 'pipeline', 'pump', 'supply', 'tap', 'pressure', 'flow', 'potable', 'contamination'],
+  RDS: ['road', 'pwd', 'pothole', 'pavement', 'street', 'traffic', 'divider', 'footpath', 'asphalt', 'tar', 'signal'],
+  SAN: ['sanitation', 'garbage', 'waste', 'trash', 'litter', 'bin', 'dump', 'cleaning', 'sweeping', 'toilet', 'safai', 'kachra'],
+  DRN: ['drain', 'drainage', 'sewer', 'sewage', 'waterlog', 'flood', 'gutter', 'overflow', 'stormwater', 'nala'],
+  ELE: ['electric', 'electrical', 'power', 'light', 'street light', 'streetlight', 'wire', 'cable', 'transformer', 'pole', 'current', 'outage'],
+  PRK: ['park', 'garden', 'tree', 'horticulture', 'greenery', 'playground', 'bench', 'grass', 'lawn', 'encroachment'],
+}
+
 /**
  * Finds matching department from list of departments based on recommended department or category name
  */
@@ -76,6 +85,19 @@ export function matchDepartment(recommendedDept?: string, categoryName?: string,
       (categoryName && d.name.toLowerCase().includes(categoryName.split(' ')[0].toLowerCase()))
   )
   if (substringMatch) return substringMatch
+
+  // 3. Keyword matching across canonical dictionary
+  for (const [code, keywords] of Object.entries(DEPARTMENT_KEYWORDS)) {
+    const dept = departments.find(d => d.code.toUpperCase() === code)
+    if (dept) {
+      const matched = keywords.some(kw => 
+        target.includes(kw) || 
+        (categoryName && categoryName.toLowerCase().includes(kw)) ||
+        (recommendedDept && recommendedDept.toLowerCase().includes(kw))
+      )
+      if (matched) return dept
+    }
+  }
 
   return null
 }
@@ -123,7 +145,8 @@ export function determineRoutingDecision(
 }
 
 /**
- * Executes full smart routing process for a complaint and records status history transition in Supabase
+ * Executes full smart routing process for a complaint and records status history transition in Supabase.
+ * Uses SECURITY DEFINER RPC to bypass citizen-blocked UPDATE RLS on complaints table.
  */
 export async function executeSmartRouting(
   supabase: SupabaseClient,
@@ -138,31 +161,23 @@ export async function executeSmartRouting(
   // Determine routing decision
   const decision = determineRoutingDecision(routingInput, departments)
 
-  // Update complaint record atomically with department, priority, status, and SLA deadline
-  const { error: updateErr } = await supabase
-    .from('complaints')
-    .update({
-      department_id: decision.departmentId,
-      priority: decision.priority,
-      status: decision.status,
-      sla_start_time: decision.slaStart,
-      sla_duration_hours: decision.slaDurationHours,
-      sla_deadline: decision.slaDeadline,
-    })
-    .eq('id', complaintId)
-
-  if (updateErr) {
-    throw new Error(`Failed to update complaint routing: ${updateErr.message}`)
-  }
-
-  // Record status transition in complaint_status_history
-  await supabase.from('complaint_status_history').insert({
-    complaint_id: complaintId,
-    old_status: null,
-    new_status: decision.status,
-    updated_by: updatedByUserId || null,
-    notes: decision.routingReason,
+  // Update complaint routing via SECURITY DEFINER function (bypasses citizen UPDATE RLS safely)
+  const { error: rpcErr } = await supabase.rpc('route_complaint', {
+    p_complaint_id: complaintId,
+    p_department_id: decision.departmentId,
+    p_priority: decision.priority,
+    p_status: decision.status,
+    p_sla_start_time: decision.slaStart,
+    p_sla_duration_hours: decision.slaDurationHours,
+    p_sla_deadline: decision.slaDeadline,
+    p_routing_reason: decision.routingReason,
+    p_updated_by: updatedByUserId || null,
   })
+
+  if (rpcErr) {
+    throw new Error(`Failed to route complaint via RPC: ${rpcErr.message}`)
+  }
 
   return decision
 }
+

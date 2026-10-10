@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getGeminiClient, GEMINI_DEFAULT_MODEL } from '@/lib/gemini'
-import { executeSmartRouting } from '@/lib/services/routingService'
+import { determineRoutingDecision } from '@/lib/services/routingService'
 import { z } from 'zod'
 
 // Exact department names from the database
@@ -198,7 +198,21 @@ Respond with ONLY the JSON object, no markdown code blocks.`
     }
     }
 
-    // Initial creation of complaint record
+    // Determine smart routing decision prior to inserting complaint
+    const { data: depts } = await supabase.from('departments').select('id, name, code')
+    const routingDecision = determineRoutingDecision(
+      {
+        category: analysis.category,
+        subcategory: analysis.subcategory,
+        department: analysis.department,
+        priority: analysis.priority,
+        confidence: analysis.confidence,
+        needs_human_review: analysis.needs_human_review || !aiSuccess,
+      },
+      depts || []
+    )
+
+    // Initial creation of complaint record with department_id, priority, status and SLA already populated
     const { data: complaint, error: complaintErr } = await supabase
       .from('complaints')
       .insert({
@@ -209,14 +223,28 @@ Respond with ONLY the JSON object, no markdown code blocks.`
         latitude,
         longitude,
         address,
-        status: 'SUBMITTED',
+        department_id: routingDecision.departmentId,
+        priority: routingDecision.priority,
+        status: routingDecision.status,
+        sla_start_time: routingDecision.slaStart,
+        sla_duration_hours: routingDecision.slaDurationHours,
+        sla_deadline: routingDecision.slaDeadline,
       })
       .select()
       .single()
 
     if (complaintErr) throw new Error(complaintErr.message)
 
-    // Save all uploaded image records
+    // Record initial status in status history
+    await supabase.from('complaint_status_history').insert({
+      complaint_id: complaint.id,
+      old_status: null,
+      new_status: routingDecision.status,
+      updated_by: user.id,
+      notes: routingDecision.routingReason,
+    })
+
+    // Save all uploaded image records (citizen INSERT policy allows this)
     for (const imgUrl of rawImages) {
       await supabase.from('complaint_images').insert({
         complaint_id: complaint.id,
@@ -225,35 +253,20 @@ Respond with ONLY the JSON object, no markdown code blocks.`
       })
     }
 
-    // Persist complete AI analysis to complaint_ai_analysis table
-    await supabase.from('complaint_ai_analysis').insert({
-      complaint_id: complaint.id,
-      category: analysis.category,
-      subcategory: analysis.subcategory,
-      department_recommendation: analysis.department,
-      priority_recommendation: analysis.priority,
-      summary: analysis.summary,
-      recommended_actions: analysis.recommended_actions,
-      suggested_sla_hours: analysis.suggested_sla_hours,
-      confidence: analysis.confidence,
-      needs_human_review: analysis.needs_human_review,
-      raw_response: { ...analysis, ai_status: aiSuccess ? 'SUCCESS' : 'AI_PROCESSING_FAILED' },
+    // Persist AI analysis via SECURITY DEFINER RPC (no INSERT RLS policy for citizens on complaint_ai_analysis)
+    await supabase.rpc('insert_ai_analysis', {
+      p_complaint_id: complaint.id,
+      p_category: analysis.category,
+      p_subcategory: analysis.subcategory,
+      p_department_recommendation: analysis.department,
+      p_priority_recommendation: analysis.priority,
+      p_summary: analysis.summary,
+      p_recommended_actions: analysis.recommended_actions,
+      p_suggested_sla_hours: analysis.suggested_sla_hours,
+      p_confidence: analysis.confidence,
+      p_needs_human_review: analysis.needs_human_review,
+      p_raw_response: { ...analysis, ai_status: aiSuccess ? 'SUCCESS' : 'AI_PROCESSING_FAILED' },
     })
-
-    // Execute Smart Department Routing & Fallback Queue Assignment via routingService
-    const routingDecision = await executeSmartRouting(
-      supabase,
-      complaint.id,
-      {
-        category: analysis.category,
-        subcategory: analysis.subcategory,
-        department: analysis.department,
-        priority: analysis.priority,
-        confidence: analysis.confidence,
-        needs_human_review: analysis.needs_human_review || !aiSuccess,
-      },
-      user.id
-    )
 
     return NextResponse.json({
       complaintId: complaint.id,

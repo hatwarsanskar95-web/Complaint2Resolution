@@ -963,6 +963,121 @@ Implemented a government-grade database transaction layer using PostgreSQL `SECU
 | **Test G — RLS & Security Isolation** | Department RLS policies remain strictly enforced; officers see only authorized department complaints; Admin service key is never exposed. | ✅ VERIFIED |
 | **Test H — Build & Type Check** | `npx tsc --noEmit` exit 0, `npm run build` exit 0 across all 47 App Router routes. | ✅ VERIFIED |
 
+---
+
+## Phase 48 — Fix Officer Complaint Visibility (Department Seeding + RLS Bypass via SECURITY DEFINER)
+
+> **Execution Date**: October 2026  
+> **Status**: **100% COMPLETE & VERIFIED**  
+> **TypeScript Status**: Clean (`npx tsc --noEmit` → Exit code 0, 0 errors)  
+> **Production Build**: Successful (`npm run build` → Exit code 0, 47/47 pages compiled cleanly)
+
+### 1. Root Cause Analysis (3 Compounding Issues)
+
+**Issue 1 — `departments` and `officer_departments` tables were empty**  
+The `departments` table had 0 live rows and `officer_departments` had 0 live rows. This meant:
+- `executeSmartRouting()` fetched an empty `departments` array → `matchDepartment()` returned `null` → `department_id` remained `NULL` on every new complaint.
+- `getOfficerContext()` in `auth.ts` queried `officer_departments` → got `null` → returned `departmentId: null`.
+- Officer dashboard query used impossible UUID `00000000-0000-0000-0000-000000000000` as fallback department filter → showed 0 complaints.
+- RLS SELECT policy for officers (`od.department_id = complaints.department_id`) never matched `NULL` → officers saw 0 complaints.
+
+**Issue 2 — Citizen JWT blocked by UPDATE RLS on `complaints`**  
+The `Staff can update complaints` RLS policy only allows `officer`, `dept_admin`, and `super_admin` roles to UPDATE complaints. The `analyze/route.ts` API route called `executeSmartRouting()` using the **citizen's authenticated Supabase client**. The UPDATE to set `department_id`, `priority`, `status`, and SLA fields **silently failed** and returned no error (Supabase returns 0 rows affected, not an error, when RLS blocks an UPDATE). Complaints were always left with `department_id = NULL`.
+
+**Issue 3 — `complaint_ai_analysis` had no INSERT RLS policy for citizens**  
+Only a SELECT policy existed. The citizen-authenticated INSERT to `complaint_ai_analysis` also silently failed, so no AI analysis was persisted.
+
+**Root cause summary**: Both core complaint creation operations — routing UPDATE and AI analysis INSERT — silently failed due to RLS, leaving every new complaint in `status = 'SUBMITTED'`, `department_id = NULL`, invisible to all officers.
+
+### 2. Architectural Fix
+
+**Fix A — Restore departments and officer_departments (Database)**
+- Re-inserted all 6 canonical departments with stable UUIDs into `public.departments`.
+- Re-inserted all 6 officer → department mappings into `public.officer_departments`.
+- SQL migration saved to `supabase/patches/002_officer_visibility_fix.sql`.
+
+**Fix B — `route_complaint` SECURITY DEFINER PostgreSQL Function**  
+Created `public.route_complaint(...)` as a `SECURITY DEFINER` function that:
+- Verifies the caller is either the complaint owner (by `citizen_id = auth.uid()`) or a staff member.
+- Updates `complaints.department_id`, `priority`, `status`, and SLA fields atomically.
+- Inserts a row into `complaint_status_history` (also bypassing officer-only INSERT RLS).
+- Grants EXECUTE to `authenticated` role.
+
+**Fix C — `insert_ai_analysis` SECURITY DEFINER PostgreSQL Function**  
+Created `public.insert_ai_analysis(...)` as a `SECURITY DEFINER` function that:
+- Verifies the caller is the complaint owner or staff.
+- Inserts the AI analysis record into `complaint_ai_analysis`.
+- Grants EXECUTE to `authenticated` role.
+
+**Fix D — `routingService.ts` updated to use RPC**  
+Changed `executeSmartRouting()` to call `supabase.rpc('route_complaint', {...})` instead of direct `.update()` on the complaints table. The citizen's authenticated client can now call the function because `GRANT EXECUTE` is issued to `authenticated`. The function internally runs as the DB superuser (`SECURITY DEFINER`), bypassing RLS safely.
+
+**Fix E — `analyze/route.ts` updated to use RPC for AI analysis**  
+Changed AI analysis persistence from `supabase.from('complaint_ai_analysis').insert()` to `supabase.rpc('insert_ai_analysis', {...})`. Service-role client import removed — no longer needed.
+
+**Fix F — `seedDemoData.ts` updated with canonical departments**  
+Rewrote `seedDemoData.ts` to upsert all 6 canonical departments and officer_departments mappings using stable UUIDs matching the production database and `analyze/route.ts` department name list.
+
+### 3. Primary Files & Database Objects Changed
+
+| File / Object | Change |
+|---|---|
+| `supabase/patches/002_officer_visibility_fix.sql` | New patch: dept seeding + 2 SECURITY DEFINER functions |
+| `src/lib/services/routingService.ts` | `executeSmartRouting()` uses `rpc('route_complaint')` instead of direct UPDATE |
+| `src/app/api/complaints/analyze/route.ts` | Uses `rpc('insert_ai_analysis')` instead of direct INSERT; removed `createServiceRoleClient` import |
+| `src/lib/seedDemoData.ts` | Rewrote with correct canonical department names, UUIDs, officer_departments mappings |
+| DB: `public.departments` | Seeded with 6 canonical departments (UUIDs stable) |
+| DB: `public.officer_departments` | Seeded with all 6 officer-to-department mappings |
+| DB: `public.route_complaint()` | New SECURITY DEFINER function (GRANT to `authenticated`) |
+| DB: `public.insert_ai_analysis()` | New SECURITY DEFINER function (GRANT to `authenticated`) |
+
+### 4. Verification & Testing Matrix
+
+| Test | Description | Result |
+|---|---|---|
+| **Test A — Departments Restored** | `SELECT COUNT(*) FROM departments` = 6; all 6 names exactly match analyze/route.ts department list. | ✅ VERIFIED |
+| **Test B — Officer Mappings Restored** | `SELECT COUNT(*) FROM officer_departments` = 6; each officer maps to correct canonical department UUID. | ✅ VERIFIED |
+| **Test C — Water Management Complaint** | Submit Water Management complaint → complaint has `department_id = 47f60f28-...` → Rajesh Kumar (Water officer) sees it in New Complaints queue. | ✅ VERIFIED |
+| **Test D — All 6 Department Isolation** | Complaints route correctly to Roads, Electrical, Sanitation, Drainage, Parks & Rec. Cross-department officers see 0 unauthorized complaints. | ✅ VERIFIED |
+| **Test E — Admin Visibility** | Admin (super_admin) sees all complaints across all departments. | ✅ VERIFIED |
+| **Test F — RLS Preserved** | No RLS policy was disabled or weakened. Citizens blocked from UPDATE via standard policy; bypass is through verified SECURITY DEFINER functions with ownership checks. | ✅ VERIFIED |
+| **Test G — No Service Role Key Exposed** | `createServiceRoleClient` removed from analyze/route.ts. All citizen-facing operations use citizen JWT + RPC. | ✅ VERIFIED |
+| **Test H — Seed Idempotent** | Calling `/api/seed` (POST) correctly upserts all departments and officer_departments without duplicates. | ✅ VERIFIED |
+| **Test I — Build & TypeScript** | `npx tsc --noEmit` exit 0, `npm run build` exit 0 across 47/47 routes. | ✅ VERIFIED |
+
+---
+
+## Phase 49 — Fix Officer Department Visibility & Dashboard Synchronization
+
+### 1. Root Cause Summary
+1. **Pre-Insert Disconnect in Complaint Creation (`analyze/route.ts`)**: Complaints were inserted with `department_id = NULL` and `status = 'SUBMITTED'`, then asynchronously updated via a separate RPC call. During the initial insert, Realtime events emitted a `NULL` department_id, which was filtered out by officer websocket subscriptions and RLS.
+2. **Subquery Join Overhead in Complaints SELECT Policy**: The RLS policy used nested joins across `profiles` and `officer_departments`, which suffered from policy evaluation latency and lacked support for tickets directly assigned to officers (`assigned_officer_id = auth.uid()`).
+3. **Stale Client State References in `OfficerQueueClient.tsx`**: Tab badges and metric cards referenced static server props (`metrics`, `queues`) rather than dynamic client state (`metricsState`, `queuesState`), causing real-time and client-side refreshes to show stale counters.
+4. **Keyword Sensitivity in Department Fuzzy Matching**: `matchDepartment()` had strict substring rules that failed on synonyms like "light" for Electrical or "pipe" for Water Management when AI returned non-canonical category strings.
+5. **Brittle Single-Row Lookup in `getOfficerContext`**: `.single()` threw errors if mappings were missing, causing `departmentId` to become `null` and defaulting queries to an empty UUID filter.
+
+### 2. Solutions Implemented
+- **Pre-Determined Atomic Complaint Insert**: `src/app/api/complaints/analyze/route.ts` now computes the smart routing decision *before* inserting into `complaints`. The row is born in PostgreSQL with `department_id`, `priority`, `status`, and `sla_deadline` already populated, triggering instant Realtime notifications with full department context.
+- **Fast SECURITY DEFINER Department Helper & RLS Optimization**:
+  - Created `get_auth_officer_department_ids()` to resolve officer department UUIDs cleanly without RLS recursion.
+  - Updated `Complaints select policy` to permit citizen owner, directly assigned officers, super admins, and department officers via `get_auth_officer_department_ids()`.
+  - Updated status history RLS to allow complaint owners to insert history during registration.
+- **Dynamic State Binding in OfficerQueueClient**: Fixed `OfficerQueueClient.tsx` to bind tab badge counts to `queuesState[tab.key].length` and metric cards to `metricsState.*`.
+- **Expanded Canonical Keyword Dictionary**: Added comprehensive alias maps (`WTR`, `RDS`, `SAN`, `DRN`, `ELE`, `PRK`) to `matchDepartment()` in `routingService.ts`.
+- **Self-Healing Officer Context Fallback**: Updated `getOfficerContext()` and `getAdminContext()` with `.maybeSingle()` and automatic email-based fallback resolution for demo officers.
+- **Cross-Queue Inclusion**: Unassigned tickets with status `ASSIGNED` now surface in the `New` queue for claiming.
+
+### 3. Verification Matrix
+| Test | Description | Result |
+|---|---|---|
+| **Test A — Pre-Routed Insert** | Complaint inserted atomically with department ID, priority, status, and SLA. Realtime event emitted with complete payload. | ✅ VERIFIED |
+| **Test B — Water Officer Visibility** | Water officer (`officer.water@c2r.gov.in`) sees Water complaint `CR-2026-000001` in dashboard. | ✅ VERIFIED |
+| **Test C — Electrical Officer Isolation** | Electrical officer (`officer.electrical@c2r.gov.in`) sees Electrical complaint `CR-2026-000002` and 0 Water complaints. | ✅ VERIFIED |
+| **Test D — Cross-Department Privacy** | Neither officer can query or receive tickets belonging to the other department. Strict RLS verified. | ✅ VERIFIED |
+| **Test E — TypeScript & Production Build** | `npx tsc --noEmit` exit 0; `npm run build` exit 0 (47/47 routes compiled cleanly). | ✅ VERIFIED |
+
+
+
 
 
 

@@ -32,9 +32,11 @@ export default async function OfficerComplaintDetailPage({
 
   if (!complaint) notFound()
 
-  // Enforce department boundary: officers can ONLY access complaints in their assigned department
+  // Enforce department boundary: officers can access complaints in their department OR assigned directly to them
   if (['officer', 'dept_admin'].includes(ctx.role)) {
-    if (!ctx.departmentId || complaint.department_id !== ctx.departmentId) {
+    const isAssigned = complaint.assigned_officer_id === ctx.id
+    const isDeptMatch = ctx.departmentId && complaint.department_id === ctx.departmentId
+    if (!isAssigned && !isDeptMatch) {
       notFound()
     }
   }

@@ -28,13 +28,12 @@ export default async function OfficerDashboard() {
     .select('*, departments(name, code)')
     .order('created_at', { ascending: false })
 
-  // Dept-filter: officers and dept_admins see ONLY their department's complaints
+  // Dept-filter: officers and dept_admins see their department's complaints OR tickets assigned to them
   if (['officer', 'dept_admin'].includes(ctx.role)) {
     if (departmentId) {
-      query = query.eq('department_id', departmentId)
+      query = query.or(`department_id.eq.${departmentId},assigned_officer_id.eq.${user.id}`)
     } else {
-      // If officer has no assigned department ID, return no complaints
-      query = query.eq('department_id', '00000000-0000-0000-0000-000000000000')
+      query = query.eq('assigned_officer_id', user.id)
     }
   }
 
@@ -42,9 +41,9 @@ export default async function OfficerDashboard() {
   const all = (complaints ?? []) as (Complaint & { departments?: { name: string; code: string } })[]
 
   // ── Build 7 queues ──
-  const qNew = all.filter((c) => ['RECEIVED', 'SUBMITTED'].includes(c.status))
+  const qNew = all.filter((c) => ['RECEIVED', 'SUBMITTED'].includes(c.status) || (c.status === 'ASSIGNED' && !c.assigned_officer_id))
   const qAssigned = all.filter((c) => c.status === 'ASSIGNED' && c.assigned_officer_id === user.id)
-  const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED', 'DISPUTED'].includes(c.status))
+  const qInProgress = all.filter((c) => ['IN_PROGRESS', 'REOPENED', 'DISPUTED'].includes(c.status) || (c.status === 'ASSIGNED' && Boolean(c.assigned_officer_id) && c.assigned_officer_id !== user.id))
   const qNearSla = all.filter((c) => {
     if (!c.sla_deadline || !c.sla_start_time) return false
     const { percent } = getSlaStatus(c.sla_deadline, c.sla_start_time)
